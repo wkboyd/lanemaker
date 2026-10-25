@@ -415,7 +415,7 @@
             <div id="tr-bar">
                 <div class="tr-item" id="tr-share"><button type="button" class="tr-btn" id="tr-share-btn" title="Crop and export a picture of the map">&#8599; Share <span class="car">&#9660;</span></button><div class="tr-panel" id="tr-share-panel"></div></div>
                 <div class="tr-item" id="tr-file"><button type="button" class="tr-btn" id="tr-file-btn" title="Save or load your project">&#128190; Save / Load <span class="car">&#9660;</span></button><div class="tr-panel" id="tr-file-panel"></div></div>
-                <div class="tr-item" id="tr-lang"><button type="button" class="tr-btn" id="tr-lang-btn" title="Translate this site" aria-label="Translate this site"><span style="font-size:1rem;line-height:1">A</span><span style="font-size:.95rem;line-height:1">&#25991;</span></button><div class="tr-panel tr-lang notranslate" id="tr-lang-panel" translate="no"></div></div>
+                <div class="tr-item" id="tr-lang"><button type="button" class="tr-btn" id="tr-lang-btn" title="Translate this site" aria-label="Translate this site"><span class="notranslate" translate="no" style="font-size:1rem;line-height:1">A</span><span class="notranslate" translate="no" style="font-size:.95rem;line-height:1">&#25991;</span></button><div class="tr-panel tr-lang notranslate" id="tr-lang-panel" translate="no"></div></div>
             </div>
             <div id="search-wrap">
                 <div id="search-box">
@@ -425,7 +425,7 @@
                 </div>
                 <div id="search-results"></div>
             </div>
-            <div id="map" class="notranslate" translate="no">
+            <div id="map">
                             <div id="toast" class="lane-tooltip" style="position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:2500;display:none;pointer-events:none;"></div>
                             <div id="crop-box"><div class="crop-handle handle-nw" data-handle="nw"></div><div class="crop-handle handle-ne" data-handle="ne"></div><div class="crop-handle handle-sw" data-handle="sw"></div><div class="crop-handle handle-se" data-handle="se"></div><div class="crop-handle handle-n" data-handle="n"></div><div class="crop-handle handle-s" data-handle="s"></div><div class="crop-handle handle-w" data-handle="w"></div><div class="crop-handle handle-e" data-handle="e"></div></div>
                             <div id="map-context-menu" class="custom-context-menu rounded shadow-lg">
@@ -633,7 +633,7 @@
             if (bmLayer) map.removeLayer(bmLayer);
             bmLayer = mkLayer(v, true).addTo(map);
             bmLayer.bringToBack();
-            { const cu = document.getElementById('bm-current'); if (cu) cu.textContent = '\u00b7 ' + g.name; }
+            { const cu = document.getElementById('bm-current'); if (cu) { cu.textContent = '\u00b7 ' + g.name; cu.classList.toggle('notranslate', group !== 'sat'); } }
             if (window.updateSearchHint) window.updateSearchHint();
             document.getElementById('bm-opacity-val').textContent = Math.round(bmSlider.value * 100) + '%';
             document.querySelectorAll('#bm-groups .bm-main').forEach(b => b.classList.toggle('active', b.dataset.g === group));
@@ -644,8 +644,8 @@
             Object.keys(BASEMAPS).filter(k => k !== 'url').forEach(k => {
                 const g = BASEMAPS[k], row = document.createElement('div'), list = document.createElement('div');
                 row.className = 'bm-row'; list.className = 'bm-variants';
-                row.innerHTML = '<button class="tool-btn bm-main" data-g="' + k + '">' + g.name + '</button><button class="tool-btn bm-arrow" title="More ' + g.name + ' maps">&#9662;</button>';
-                g.vars.forEach((v, i) => { const b = document.createElement('button'); b.className = 'tool-btn bm-var'; b.dataset.g = k; b.dataset.v = i; b.textContent = v.name; b.onclick = () => { setBasemap(k, i); if (k === 'sat') satJump(); }; list.appendChild(b); });
+                row.innerHTML = '<button class="tool-btn bm-main' + (k === 'sat' ? '' : ' notranslate') + '" data-g="' + k + '">' + g.name + '</button><button class="tool-btn bm-arrow" title="More ' + g.name + ' maps">&#9662;</button>';
+                g.vars.forEach((v, i) => { const b = document.createElement('button'); b.className = 'tool-btn bm-var notranslate'; b.dataset.g = k; b.dataset.v = i; b.textContent = v.name; b.onclick = () => { setBasemap(k, i); if (k === 'sat') satJump(); }; list.appendChild(b); });
                 row.firstChild.onclick = () => { setBasemap(k); if (k === 'sat') satJump(); };
                 row.lastChild.onclick = () => list.classList.toggle('open');
                 if (g.vars.length < 2) { row.lastChild.style.display = 'none'; row.firstChild.style.borderRadius = '4px'; }
@@ -1218,7 +1218,11 @@
             if (typeof m !== 'string' || m.indexOf('median:') !== 0) return null;
             const p = m.split(':'); return { kind: p[1], w: +p[2] || 1.8 };
         }
-        function swEdge(lane, i, n) { return !!lane.sw && ((i === 0 && !!lane.sw.l) || (i === n && !!lane.sw.r)); }
+        function swEdge(lane, i, n) {
+            // a sidewalk makes the road edge a curb, except where its bike lane sits right against the road (0 grass buffer): that edge stays a painted line
+            const q = lane.sw && (i === 0 ? lane.sw.l : (i === n ? lane.sw.r : null)); if (!q) return false;
+            return !(q.bike && !(q.buf > 0.01));
+        }
         function curbLine(coords, off, mpp) {
             const ec = getOffsetCoordinates(coords, off); if (ec.length < 2) return;
             let pieces = [ec];
@@ -4402,7 +4406,7 @@
                 if (sw.bike) {
                     const bw = sw.bike === 'two' ? 3.0 : 1.5, a0 = a; strip(bw, sw.bikePave || bikeDefault(), 'bike');
                     bikeMarkings(coords, Math.min(sg * a0, sg * (a0 + bw)), Math.max(sg * a0, sg * (a0 + bw)), sw.bike === 'two', mpp, polys, [0, 0], false);
-                    stripCurb(coords, sg * a0, mpp, polys); stripCurb(coords, sg * (a0 + bw), mpp, polys);
+                    if (sw.buf > 0.01) stripCurb(coords, sg * a0, mpp, polys); stripCurb(coords, sg * (a0 + bw), mpp, polys);      // no curb against the road when the bike lane touches it: the white edge line is drawn there instead
                 }
                 if (sw.w > 0.01) strip(sw.w, sw.pave || 'concrete', 'walk');
             });
@@ -6890,10 +6894,11 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
     const twoWay = l => lanes2(l) && l.dirs && l.dirs.length === 2 && l.dirs[0] !== l.dirs[1];
     const cnt = f => Math.min(3, arms().filter(f).length);
     function junction() {
-        const pts = []; arms().forEach(l => { pts.push(l.points[0], l.points[l.points.length - 1]); });
-        let best = null, bn = 0;
-        pts.forEach(p => { const n = pts.filter(q => map.distance(p, q) < 2).length; if (n > bn) { bn = n; best = p; } });
-        return best && bn >= 2 ? L.latLng(best.lat, best.lng) : null;
+        const a = arms(); if (a.length < 2) return gPts ? gPts.c : null;
+        const ends = a.map(l => [l.points[0], l.points[l.points.length - 1]]);
+        const mc = L.latLng(ends.reduce((s, e) => s + (e[0].lat + e[1].lat) / 2, 0) / a.length, ends.reduce((s, e) => s + (e[0].lng + e[1].lng) / 2, 0) / a.length);
+        const inner = ends.map(e => map.distance(mc, e[0]) < map.distance(mc, e[1]) ? e[0] : e[1]);
+        return L.latLng(inner.reduce((s, p) => s + p.lat, 0) / inner.length, inner.reduce((s, p) => s + p.lng, 0) / inner.length);
     }
     function clearGuide() { if (guide) { guide.remove(); guide = null; } }
     function tag(ll, text, color) {
@@ -6904,19 +6909,21 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         clearGuide(); guide = L.layerGroup().addTo(map);
         if (kind === 'draw') {
             if (!gPts) {
-                const sz = map.getSize(), cx = sz.x / 2, cy = sz.y * 0.4, R = 110, f = (x, y) => map.containerPointToLatLng([x, y]);
-                gPts = { c: f(cx, cy), w: f(cx - R, cy), e: f(cx + R, cy), s: f(cx, cy + R) };
+                const sz = map.getSize(), cx = sz.x / 2, cy = sz.y * 0.4, G = 50, R = 150, f = (x, y) => map.containerPointToLatLng([x, y]);
+                gPts = { c: f(cx, cy), wo: f(cx - R, cy), wi: f(cx - G, cy), eo: f(cx + R, cy), ei: f(cx + G, cy), so: f(cx, cy + R), si: f(cx, cy + G), gap: map.distance(f(cx, cy), f(cx + G + 20, cy)) };
             }
-            [gPts.w, gPts.e, gPts.s].forEach(p => L.polyline([gPts.c, p], { color: '#f59e0b', weight: 3, dashArray: '7,7', interactive: false }).addTo(guide));
-            L.circleMarker(gPts.c, { radius: 8, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, interactive: false }).addTo(guide);
-            [gPts.w, gPts.e, gPts.s].forEach(p => L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, interactive: false }).addTo(guide));
-            tag(gPts.c, 'Start all three roads here', '#d97706').addTo(guide);
-            tag(gPts.w, 'West', '#92400e').addTo(guide); tag(gPts.e, 'East', '#92400e').addTo(guide); tag(gPts.s, 'South', '#92400e').addTo(guide);
+            L.circle(gPts.c, { radius: gPts.gap, color: '#9ca3af', weight: 2, dashArray: '3,6', fill: false, interactive: false }).addTo(guide);
+            [[gPts.wi, gPts.wo, 'Road 1 (west)'], [gPts.ei, gPts.eo, 'Road 2 (east)'], [gPts.si, gPts.so, 'Road 3 (south)']].forEach(([i, o, name]) => {
+                L.polyline([i, o], { color: '#f59e0b', weight: 3, dashArray: '7,7', interactive: false }).addTo(guide);
+                [i, o].forEach(p => L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, interactive: false }).addTo(guide));
+                tag(o, name, '#92400e').addTo(guide);
+            });
+            tag(gPts.c, 'Leave this gap empty', '#6b7280').addTo(guide);
         } else if (kind === 'select') {
             const j = junction() || (gPts && gPts.c); if (!j) return;
             const p = map.latLngToContainerPoint(j), q = (x, y) => map.containerPointToLatLng([p.x + x, p.y + y]);
-            L.rectangle(L.latLngBounds(q(-48, -48), q(48, 48)), { color: '#3b82f6', weight: 2, dashArray: '6,5', fillOpacity: .06, interactive: false }).addTo(guide);
-            tag(q(0, -48), 'Drag a box around this junction', '#2563eb').addTo(guide);
+            L.rectangle(L.latLngBounds(q(-85, -85), q(85, 85)), { color: '#3b82f6', weight: 2, dashArray: '6,5', fillOpacity: .06, interactive: false }).addTo(guide);
+            tag(q(0, -85), 'Drag a box around the gap', '#2563eb').addTo(guide);
         }
     }
 
@@ -6927,7 +6934,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
           body: '<p>Choose Satellite or OSM (the arrow beside each lists more maps) and fade the map with the opacity slider. The search bar takes place names or coordinates: <b>pan to a spot with room for a small junction</b> before the next step.</p>' },
         { el: () => $('btn-toggle-lane'), dim: false, pos: 'bottom', guide: 'draw', title: 'Draw three roads',
           enter: () => { if (!base) base = new Set(allLanes.map(l => l.id)); try { if (map.getZoom() < 17) map.setZoom(18); } catch (e) { /* ignore */ } showGuide('draw'); },
-          body: '<p>Click <b>Lane Tool</b>, then draw <b>three separate roads</b> along the dashed lines. For each one: click the <b>orange dot</b>, click the far dot, then <b>double-click</b> to finish. Later roads snap onto the first one\u2019s end.</p><p>If the tool switches off after a segment, click <b>Lane Tool</b> again. Each road starts as a single one-way lane.</p>',
+          body: '<p>Click <b>Lane Tool</b>, then draw <b>three separate roads</b>, one along each dashed line, like the prongs of a plug. For each: click one orange dot, click the other, then <b>double-click</b> to finish. Leave the blank gap in the middle empty: the intersection will fill it.</p><p>If the tool switches off after a segment, click <b>Lane Tool</b> again. Each road starts as a single one-way lane.</p>',
           tryIt: 'Draw the west, east and south roads', req: true, prog: () => cnt(() => true) + ' / 3', done: () => cnt(() => true) >= 3 },
         { dim: false, pos: 'bottom', title: 'Add a second lane',
           body: '<p>Click a road to select it. Blue handles appear on its sides; <b>drag one outward</b> to add a lane (drag it back to remove one). Do this on all three roads so each has <b>two lanes</b>.</p><p>Other ways to add lanes: hover a segment end and click <b style="color:#3b82f6">+</b>, or <b style="color:#3b82f6">&#10140;</b> to continue the whole road. Dragging the body moves a road; clicking a selected road adds a node.</p>',
@@ -6938,18 +6945,18 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         { dim: false, pos: 'bottom', title: 'Right-click for details',
           body: '<p>Right-click a lane for its menu: <b>Change Marking</b> for lines, <b>Convert to</b> a turn lane, bike lane, median or crosswalk, <b>Add</b> for arrows, stop bars, yield triangles, signs and tram rail, <b>Apply</b> for material and width, <b>Delete</b> for the rest.</p><p>Skip it for now: the intersection editor adds stop bars and edge markings for you.</p>' },
         { el: () => $('btn-toggle-ix'), dim: false, pos: 'bottom', title: 'Open the Intersection Tool',
-          body: '<p>The roads are in place, so now we join them. Click <b>Intersection Tool</b>. A control strip appears at the top of the map and walks you through <b>eight stages</b>; we will do the ones this junction needs.</p>',
+          body: '<p>The roads are in place, so now we join them across the gap. Click <b>Intersection Tool</b>. A control strip appears at the top of the map and walks you through <b>eight stages</b>; we will do the ones this junction needs.</p>',
           tryIt: 'Click Intersection Tool', req: true, done: () => !!ixs() },
         { el: ixPanel, dim: false, pos: 'bottom', guide: 'select', title: 'Stage 1: select lane ends',
           enter: () => showGuide('select'),
-          body: '<p>The dots are lane ends. <b>Box</b> is the default mode (<b>Lasso</b> and <b>Click</b> work too). Drag a box around the junction so you pick up the <b>six ends</b> there (two per road) and none of the far ends. Shift-drag removes dots.</p><p>When the strip says <b>6 picked</b>, continue.</p>',
-          tryIt: 'Pick the six junction ends', req: true, done: () => { const s = ixs(); return !!s && s.stage === 'sel' ? s.sel === 6 : stg() >= 1; } },
+          body: '<p>The dots are lane ends. <b>Box</b> is the default mode (<b>Lasso</b> and <b>Click</b> work too). Drag a box around the gap so you pick up the <b>six ends</b> facing it (two per road) and none of the far ends. Shift-drag removes dots.</p><p>When the strip says <b>6 picked</b>, continue.</p>',
+          tryIt: 'Pick the six ends around the gap', req: true, done: () => { const s = ixs(); return !!s && s.stage === 'sel' ? s.sel === 6 : stg() >= 1; } },
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Click Next in the strip',
           body: '<p>Click <b>Next &rarr;</b> in the strip at the top of the map (or press <kbd>Enter</kbd>) to move to <b>Stage 2: Lane paths</b>.</p>',
           tryIt: 'Advance to Lane paths', req: true, done: () => stg() >= 1 },
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 2: lane paths',
           body: '<p>Paths show where traffic can go from each incoming lane. Press <b>Guess</b> to draw through, left and right movements for all three approaches. You can also click a green origin dot, then each destination dot, or click a path and press <kbd>Del</kbd> to remove it. Click a path to reshape it with its blue handles.</p>',
-          tryIt: 'Press Guess (six paths for a T)', req: true, prog: () => { const s = ixs(); return (s ? s.roads : 0) + ' paths'; }, done: () => { const s = ixs(); return !!s && s.roads >= 6; } },
+          tryIt: 'Press Guess (six paths for a T)', req: true, prog: () => { const s = ixs(); return (s ? s.roads : 0) + ' / 6'; }, done: () => { const s = ixs(); return !!s && s.roads >= 6; } },
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Stages 3 to 5: bike paths and sidewalks',
           body: '<p>Click <b>Next</b> until the strip says <b>Island</b>. On the way, <b>Tram</b> only shows up if you selected rail; <b>Bike</b> and <b>Sidewalk</b> are where you draw bike crossings and crosswalks, and they detect corners automatically when the roads have sidewalks or bike strips. This example has neither, so there is nothing to do.</p>',
           tryIt: 'Reach the Island stage', req: true, done: () => stg() >= 5 },
@@ -7005,15 +7012,20 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
             window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); e.preventDefault();
         });
     }
-    function tryText(s, ok) { return (ok ? '\u2713 Done: ' : 'Try it: ') + s.tryIt + (s.prog && !ok ? ' (' + s.prog() + ')' : ''); }
+    function tryHtml(s, ok) { return (ok ? '\u2713 Done: ' : 'Try it: ') + s.tryIt + (s.prog && !ok ? ' <span class="notranslate">(' + s.prog() + ')</span>' : ''); }
+    const applyTr = el => { try { if (window.__trApply) window.__trApply(el); } catch (e) { /* ignore */ } };
+    window.__tutStrings = () => steps.map(s => '<h4>' + s.title + '</h4>' + s.body + (s.tryIt ? '<div>Try it: ' + s.tryIt + '</div><div>\u2713 Done: ' + s.tryIt + '</div>' : ''))
+        .concat(['<button>Back</button><button>Skip tour</button><button>Next</button><button>Skip step</button><button>Finish</button>']);
     function render() {
         const s = steps[idx], last = idx === steps.length - 1;
         card.innerHTML = '<span class="tut-count">' + (idx + 1) + ' / ' + steps.length + '</span><h4 title="Drag to move">' + s.title + '</h4>' + s.body
-            + (s.tryIt ? '<div class="tut-try" id="tut-try">' + tryText(s, false) + '</div>' : '')
+            + (s.tryIt ? '<div class="tut-try" id="tut-try">' + tryHtml(s, false) + '</div>' : '')
             + '<div class="tut-bar"><i style="width:' + ((idx + 1) / steps.length * 100) + '%"></i></div>'
             + '<div class="tut-nav">' + (idx ? '<button type="button" data-a="back">Back</button>' : '<button type="button" class="tut-skip" data-a="skip">Skip tour</button>')
             + (idx && !last ? '<button type="button" class="tut-skip" data-a="skip">Skip tour</button>' : '')
-            + '<button type="button" class="tut-next' + (s.req ? ' soft' : '') + '" data-a="next">' + (s.req ? 'Skip step' : (last ? 'Finish' : 'Next')) + '</button></div>';
+            + '<button type="button" class="tut-next' + (s.req ? ' soft' : '') + '" data-a="next" data-l="' + (s.req ? 'Skip step' : (last ? 'Finish' : 'Next')) + '">' + (s.req ? 'Skip step' : (last ? 'Finish' : 'Next')) + '</button></div>';
+        { const t0 = $('tut-try'); if (t0) t0.dataset.h = tryHtml(s, false); }
+        applyTr(card);
         clearGuide();
         if (openedBm && s.title !== 'Pick a basemap') { $('bm-details').open = false; openedBm = false; }      // put the basemap panel back as it was
         if (s.enter) { try { s.enter(); } catch (e) { /* ignore */ } }
@@ -7050,10 +7062,10 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         if (s.guide === 'draw' && guide && arms().length >= 3) clearGuide();
         const t = $('tut-try'); if (!t || !s.done) return;
         let ok = false; try { ok = !!s.done(); } catch (e) { ok = false; }
-        t.classList.toggle('ok', ok); t.textContent = tryText(s, ok);
+        t.classList.toggle('ok', ok); const h = tryHtml(s, ok); if (t.dataset.h !== h) { t.dataset.h = h; t.innerHTML = h; applyTr(t); }
         if (s.req) {
             const nb = card.querySelector('.tut-next'), last = idx === steps.length - 1;
-            if (nb) { nb.classList.toggle('soft', !ok); nb.textContent = ok ? (last ? 'Finish' : 'Next') : 'Skip step'; }
+            if (nb) { const lab = ok ? (last ? 'Finish' : 'Next') : 'Skip step'; nb.classList.toggle('soft', !ok); if (nb.dataset.l !== lab) { nb.dataset.l = lab; nb.textContent = lab; applyTr(nb); } }
         }
     }
     function go(d) {
@@ -7070,6 +7082,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
     }
     window.startTutorial = function () {
         stop(false); idx = 0; build(); render();
+        try { if (window.__trPrefetch && window.__tutStrings) window.__trPrefetch(window.__tutStrings()); } catch (e) { /* ignore */ }
         timer = setInterval(tick, 350); window.addEventListener('resize', place);
     };
 })();
@@ -7108,7 +7121,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
     }
     function note(t) { try { showToast(t); } catch (e) { /* no toast */ } }
 
-    const SKIP = '.notranslate,[translate="no"],script,style,textarea,noscript,svg,canvas,#map,#tr-lang-panel';
+    const SKIP = '.notranslate,[translate="no"],script,style,textarea,noscript,svg,canvas,.leaflet-pane,.leaflet-control-attribution,#tr-lang-panel';
     const ATTRS = ['title', 'placeholder', 'aria-label'];
     const origText = new Map();      // text node -> original English
     const appliedText = new Map();   // text node -> translated string we wrote
@@ -7118,9 +7131,10 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
     const hasLetters = s => /\p{L}/u.test(s);
     const skipEl = el => !el || (el.closest && el.closest(SKIP));
 
-    function collect() {
+    function collect(root) {
+        root = root || document.body;
         const items = [];
-        const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.nodeValue.trim() && !skipEl(n.parentElement)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
+        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.nodeValue.trim() && !skipEl(n.parentElement)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
         let n;
         while ((n = w.nextNode())) {
             const v = n.nodeValue;
@@ -7128,7 +7142,8 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
             origText.set(n, v); appliedText.delete(n);                // new or changed by the app: treat as fresh English
             if (hasLetters(v)) items.push({ kind: 't', node: n, src: v.trim().replace(/\s+/g, ' '), raw: v });
         }
-        document.body.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el => {
+        const attrEls = Array.from(root.querySelectorAll('[title],[placeholder],[aria-label]')); if (root.matches && root.matches('[title],[placeholder],[aria-label]')) attrEls.push(root);
+        attrEls.forEach(el => {
             if (skipEl(el)) return;
             const rec = origAttr.get(el) || {};
             ATTRS.forEach(a => {
@@ -7147,8 +7162,10 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         const out = (j[0] || []).map(s => s[0] || '').join('').split('\n').map(s => s.trim());
         return out.length === texts.length ? out : null;
     }
-    async function translateTexts(texts, tl) {      // unique strings -> Map(src -> translated)
-        const res = new Map(), need = texts.filter(t => { const c = cache.get(tl + '|' + t); if (c !== undefined) { res.set(t, c); return false; } return true; });
+    const inflight = new Map();
+    async function translateTexts(texts, tl) {      // unique strings -> Map(src -> translated); shares requests already in flight
+        const need = [], waits = [];
+        texts.forEach(t => { const k = tl + '|' + t; if (cache.has(k)) return; const p = inflight.get(k); if (p) waits.push(p); else need.push(t); });
         const batches = []; let cur_ = [], len = 0;
         need.forEach(t => { if (cur_.length && (len + t.length > 1200 || cur_.length >= 40)) { batches.push(cur_); cur_ = []; len = 0; } cur_.push(t); len += t.length + 1; });
         if (cur_.length) batches.push(cur_);
@@ -7156,16 +7173,49 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         async function worker() {
             while (i < batches.length) {
                 const b = batches[i++];
-                let out = await fetchBatch(b, tl);
-                if (!out) { out = []; for (const t of b) { const o = await fetchBatch([t], tl); out.push(o ? o[0] : t); } }
-                b.forEach((t, k) => { const v = out[k] || t; cache.set(tl + '|' + t, v); res.set(t, v); });
+                const pr = (async () => {
+                    let out = await fetchBatch(b, tl);
+                    if (!out) { out = []; for (const t of b) { const o = await fetchBatch([t], tl); out.push(o ? o[0] : t); } }
+                    b.forEach((t, k) => cache.set(tl + '|' + t, out[k] || t));
+                })();
+                b.forEach(t => inflight.set(tl + '|' + t, pr));
+                try { await pr; } finally { b.forEach(t => inflight.delete(tl + '|' + t)); }
             }
         }
-        await Promise.all([worker(), worker(), worker()]);
+        await Promise.all([worker(), worker(), worker(), ...waits.map(p => p.catch(() => {}))]);
+        const res = new Map(); texts.forEach(t => { const c = cache.get(tl + '|' + t); res.set(t, c !== undefined ? c : t); });
         return res;
     }
     function lead(raw) { return (raw.match(/^\s*/) || [''])[0]; }
     function trail(raw) { return (raw.match(/\s*$/) || [''])[0]; }
+    function applyItems(items, map_) {
+        items.forEach(x => {
+            const t = map_.get(x.src); if (!t) return;
+            if (x.kind === 't') {
+                if (!x.node.isConnected || x.node.nodeValue !== x.raw) return;     // changed while we waited
+                const nv = lead(x.raw) + t + trail(x.raw); x.node.nodeValue = nv; appliedText.set(x.node, nv);
+            } else {
+                if (x.el.getAttribute(x.attr) !== x.raw) return;
+                x.el.setAttribute(x.attr, t); const rec = origAttr.get(x.el); if (rec && rec[x.attr]) rec[x.attr][1] = t;
+            }
+        });
+    }
+    // instant path: translate a freshly built element from the cache (no waiting); anything not cached yet is picked up by run()
+    window.__trApply = root => {
+        if (active === 'en' || !root) return;
+        const items = collect(root), m = new Map();
+        items.forEach(x => { const c = cache.get(active + '|' + x.src); if (c !== undefined) m.set(x.src, c); });
+        applyItems(items, m);
+        if (items.some(x => !m.has(x.src))) { clearTimeout(timer); timer = setTimeout(run, 60); }
+    };
+    // warm the cache with text that is not on screen yet (e.g. the tutorial steps)
+    window.__trPrefetch = htmls => {
+        if (active === 'en' || !htmls) return;
+        const tl = active, tmp = document.createElement('div'), set = new Set();
+        htmls.forEach(h => { tmp.innerHTML = h; const w = document.createTreeWalker(tmp, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode())) { if (n.parentElement && n.parentElement.closest('.notranslate')) continue; const s = n.nodeValue.trim().replace(/\s+/g, ' '); if (s && hasLetters(s)) set.add(s); } });
+        translateTexts([...set], tl).catch(() => {});
+    };
+    function prefetchTut() { try { if (window.__tutStrings) window.__trPrefetch(window.__tutStrings()); } catch (e) { /* ignore */ } }
     async function run() {
         if (busy || active === 'en') return;
         busy = true; const myGen = gen, tl = active;
@@ -7174,16 +7224,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
                 const items = collect(); if (!items.length) break;
                 const map_ = await translateTexts([...new Set(items.map(x => x.src))], tl);
                 if (myGen !== gen) return;
-                items.forEach(x => {
-                    const t = map_.get(x.src); if (!t) return;
-                    if (x.kind === 't') {
-                        if (!x.node.isConnected || x.node.nodeValue !== x.raw) return;     // changed while we waited
-                        const nv = lead(x.raw) + t + trail(x.raw); x.node.nodeValue = nv; appliedText.set(x.node, nv);
-                    } else {
-                        if (x.el.getAttribute(x.attr) !== x.raw) return;
-                        x.el.setAttribute(x.attr, t); const rec = origAttr.get(x.el); if (rec && rec[x.attr]) rec[x.attr][1] = t;
-                    }
-                });
+                applyItems(items, map_);
             }
             if (myGen === gen && document.title === origTitle && hasLetters(origTitle)) { const tt = await translateTexts([origTitle], tl); if (myGen === gen && tt.get(origTitle)) document.title = tt.get(origTitle); }
             failed = false;
@@ -7191,7 +7232,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
             if (myGen === gen && !failed) { failed = true; note('Translation failed (' + (e && e.message || 'network') + '). Check your connection or ad blocker, then try again.'); }
             if (myGen === gen) { restore(); cur = 'en'; try { localStorage.setItem('laneToolLang', 'en'); } catch (e2) { /* ignore */ } paint(); }
         } finally { busy = false; }
-        if (myGen === gen && active !== 'en') watch();
+        if (myGen === gen && active !== 'en') { watch(); prefetchTut(); }
     }
     function relevant(m) {
         const n = m.target.nodeType === 3 ? m.target.parentElement : m.target;
@@ -7204,7 +7245,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         if (obs) return;
         obs = new MutationObserver(muts => {
             if (active === 'en' || !muts.some(relevant)) return;
-            clearTimeout(timer); timer = setTimeout(run, 350);
+            clearTimeout(timer); timer = setTimeout(run, 80);
         });
         obs.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ATTRS });
     }
