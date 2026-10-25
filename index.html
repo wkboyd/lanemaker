@@ -474,7 +474,8 @@
                                 <button class="context-menu-item hidden" id="ctx-paint-seg">Segment</button>
                                 <button class="context-menu-item hidden" id="ctx-edit-side">Edit Sidewalk…</button>
                                 <button class="context-menu-item hidden" id="ctx-ix-edit">Edit Intersection…</button>
-                                <button class="context-menu-item hidden" id="ctx-ix-solid">Change to… Solid Paint</button>
+                                <button class="context-menu-item hidden" id="ctx-ix-solid">Change to Solid Paint</button>
+                                <button class="context-menu-item hidden" id="ctx-ix-delpaint">Delete Paint</button>
                                 <button class="context-menu-item hidden" id="ctx-ix-stop">Add Stop Bar Here</button>
                                 <button class="context-menu-item hidden" id="ctx-ixcw-cont">Crosswalk: Continental</button>
                                 <button class="context-menu-item hidden" id="ctx-ixcw-ladder">Crosswalk: Ladder</button>
@@ -499,7 +500,7 @@
                                         <button class="context-menu-item" id="ctx-f-yield-lane">This Lane</button>
                                         <button class="context-menu-item" id="ctx-f-hump">Speed Hump Arrows</button>
                                         <button class="context-menu-item" id="ctx-f-word">Word Marking&hellip;</button>
-                                        <button class="context-menu-item" id="ctx-f-rrx">Railroad X (per lane)</button>
+                                        <button class="context-menu-item" id="ctx-f-rrx">Railroad X</button>
                                     </div>
                                 </div>
                                 <button class="context-menu-item hidden" id="ctx-sign">Roadside Sign&hellip;</button>
@@ -556,6 +557,9 @@
                                 <button class="context-menu-item hidden" id="ctx-combine">Combine Lanes</button>
                                 <button class="context-menu-item hidden" id="ctx-rail-ins">Insert Node Here</button>
                                 <button class="context-menu-item hidden" id="ctx-rail-delnode" data-name="Node">Delete Node</button>
+                                <button class="context-menu-item hidden" id="ctx-rail-trk-grass">Track: Grassy Tram Track</button>
+                                <button class="context-menu-item hidden" id="ctx-rail-trk-concrete">Track: Concrete Tram Track</button>
+                                <button class="context-menu-item hidden" id="ctx-rail-trk-ballast">Track: Ballasted (Heavy Rail)</button>
                                 <button class="context-menu-item hidden" id="ctx-rail-del" data-name="Rail">Delete Rail</button>
                             </div>
             </div>
@@ -691,6 +695,8 @@
         let hasUserCustomizedDefaultWidth = false;
 
         let allLanes = [];
+        let curbEdits = [], freeMarks = [];      // right-click curb edits: deleted curb sections, and curb sections converted to free markings
+        let railRaf = 0, railPendingLL = null, bedCache = new Map();      // rail-drawing frame throttle; beds of the finished rails while one is being drawn
         let allRails = [], railDraw = null, railMouse = null, railToolOn = false, railDrag = null, lastRightRail = null, lastRightRailNode = null;
         let showDirArrows = true;
         let curLevel = 0, railToolKind = 'rail', lastSnapT = null, sideStrips = [];
@@ -866,7 +872,7 @@
         }
 
         function getCleanLanesSnapshot(lanes) {
-            return getCleanLanesOnly(lanes).concat(window.ixSerialize ? window.ixSerialize() : []).concat(allRails.filter(r => r.points && r.points.length >= 2).map(r => ({ rail: true, id: r.id, kind: r.kind || 'rail', two: !!r.two, w: r.w, pave: r.pave, lvl: r.lvl || 0, points: r.points.map(p => ({ lat: p.lat, lng: p.lng })) })));
+            return getCleanLanesOnly(lanes).concat(window.ixSerialize ? window.ixSerialize() : []).concat([{ cvx: true, edits: curbEdits.map(e => ({ mid: e.mid, pts: e.pts })), marks: freeMarks.map(m => ({ id: m.id, pts: m.pts, mk: m.mk || '', th: m.th, cm: m.cm })) }]).concat(allRails.filter(r => r.points && r.points.length >= 2).map(r => ({ rail: true, id: r.id, kind: r.kind || 'rail', two: !!r.two, w: r.w, pave: r.pave, trk: r.trk, lvl: r.lvl || 0, points: r.points.map(p => ({ lat: p.lat, lng: p.lng, ho: p.ho, hi: p.hi })) })));
         }
         function getCleanLanesOnly(lanes) {
             return (lanes || allLanes)
@@ -891,9 +897,10 @@
 
         function deserializeLanes(jsonStr) {
             const all = JSON.parse(jsonStr);
+            { const cv = all.find(l => l && l.cvx); curbEdits = cv ? (cv.edits || []).map(e => ({ mid: e.mid, pts: e.pts })) : []; freeMarks = cv ? (cv.marks || []).map(m => ({ id: m.id, pts: m.pts, mk: (typeof m.mk === 'string') ? m.mk : mkJoin(m.color === '#facc15' ? 'yellow' : null, (m.style && m.style !== 'solid') ? m.style : ''), th: m.th, cm: m.cm })) : []; }
             if (window.ixLoad) window.ixLoad(all.filter(l => l.ixrec));
-            allRails = all.filter(l => l.rail).map(l => ({ id: l.id, kind: l.kind || 'rail', two: !!l.two, w: l.w, pave: l.pave, lvl: l.lvl || 0, points: l.points.map(p => L.latLng(p.lat, p.lng)), isSelected: false }));
-            return deserializeLanesOnly(all.filter(l => !l.rail && !l.ixrec));
+            allRails = all.filter(l => l.rail).map(l => ({ id: l.id, kind: l.kind || 'rail', two: !!l.two, w: l.w, pave: l.pave, trk: l.trk, lvl: l.lvl || 0, points: l.points.map(p => { const q = L.latLng(p.lat, p.lng); if (p.ho) q.ho = p.ho; if (p.hi) q.hi = p.hi; return q; }), isSelected: false }));
+            return deserializeLanesOnly(all.filter(l => !l.rail && !l.ixrec && !l.cvx));
         }
         function deserializeLanesOnly(parsed) {
             return parsed.map(l => ({
@@ -1241,8 +1248,10 @@
             const ec = getOffsetCoordinates(coords, off); if (ec.length < 2) return;
             let pieces = [ec];
             (curXBlock || []).filter(b => String(b.id).indexOf('bk') === 0).forEach(blk => { const nx = []; pieces.forEach(pc => { try { clipSplit(pc, blk.poly).out.forEach(x => nx.push(x)); } catch (e) { nx.push(pc); } }); pieces = nx; });
-            pieces.forEach(pc => { if (pc.length > 1) L.polyline(llOfC(pc), { color: '#b9b4a9', weight: Math.max(1, 0.3 / mpp), interactive: false, noClip: true, smoothFactor: 0 }).addTo(laneGroup); });
+            const cut1 = pieces.length !== 1 || pieces[0].length !== ec.length;      // a curb that was cut keeps no little scraps
+            pieces.forEach(pc => { if (pc.length > 1 && !(cut1 && curbLenM(pc) < 1.5)) L.polyline(llOfC(pc), { color: '#b9b4a9', weight: Math.max(1, 0.3 / mpp), interactive: false, noClip: true, smoothFactor: 0 }).addTo(laneGroup); });
         }
+        function curbLenM(g) { let t = 0; for (let i = 1; i < g.length; i++) { const v = xyOf(g[i], g[i - 1]); t += Math.hypot(v[0], v[1]); } return t; }
         let curMedLane = null;
         function medFill(coords, offL, offR, kind, mpp, differ, side) {
             if (kind === 'painted') {
@@ -1919,7 +1928,7 @@
             combineBtn.classList.add('hidden');
 
             const delBtn = document.getElementById('ctx-delnode');
-            ['ctx-rail-ins', 'ctx-rail-delnode', 'ctx-rail-del'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            ['ctx-rail-ins', 'ctx-rail-delnode', 'ctx-rail-del', 'ctx-rail-trk-grass', 'ctx-rail-trk-concrete', 'ctx-rail-trk-ballast'].forEach(id => document.getElementById(id).classList.add('hidden'));
             delBtn.classList.add('hidden');
             if (lastRightClickNodeInfo) {
                 const nl = lastRightClickNodeInfo.lane, ni = lastRightClickNodeInfo.nodeIndex;
@@ -2002,7 +2011,8 @@
                 { let fi = null; try { if (window.ixIslandAt && lastRightClickLatLon && !lastSideHit) fi = window.ixIslandAt(lastRightClickLatLon); } catch (e) { fi = null; } window.__rightIsl = fi; document.getElementById('ctx-ix-delfill').classList.toggle('hidden', !fi); }
                 { let rc = null; try { if (window.ixConnAt && lastRightClickLatLon) rc = window.ixConnAt(lastRightClickLatLon); } catch (e) { rc = null; } window.__rightConn = rc;
                   const sb = document.getElementById('ctx-ix-solid'), ab = document.getElementById('ctx-ix-stop');
-                  sb.classList.toggle('hidden', !(rc && rc.dash)); if (rc && rc.dash) sb.textContent = rc.c.solid ? 'Change to… Dashed Paint' : 'Change to… Solid Paint';
+                  sb.classList.toggle('hidden', !(rc && rc.dash)); if (rc && rc.dash) sb.textContent = rc.c.solid ? 'Change to Dashed Paint' : 'Change to Solid Paint';
+                  { const db = document.getElementById('ctx-ix-delpaint'); if (db) db.classList.toggle('hidden', !(rc && rc.dash)); }
                   ab.classList.toggle('hidden', !rc); }
                 { let cw = null; try { if (window.ixCrossAt && lastRightClickLatLon) cw = window.ixCrossAt(lastRightClickLatLon); } catch (e) { cw = null; } window.__rightCw = cw; ['cont', 'ladder', 'raised'].forEach(v => document.getElementById('ctx-ixcw-' + v).classList.toggle('hidden', !(cw && (cw.cv || 'cont') !== v))); }
                 const ixs = window.ixSelected ? window.ixSelected() : [], multi = !!ixh && ixh.isSelected && ixs.length > 1;
@@ -2813,7 +2823,14 @@
             }).addTo(laneGroup);
         }
 
+        // a grass buffer beside a bike lane that is only a sliver (under ~1 ft) is not worth grass + two curbs: it collapses to nothing,
+        // so the bike lane sits against the road with just the white edge line
+        const TINY_BUFFER_M = 0.3;
+        function collapseTinyBuffers() {
+            try { allLanes.forEach(l => { if (!l.sw) return; ['l', 'r'].forEach(sd => { const q = l.sw[sd]; if (q && q.bike && q.buf > 0.01 && q.buf < TINY_BUFFER_M) q.buf = 0; }); }); } catch (e) { console.error(e); }
+        }
         function updateLaneGraphics() {
+            collapseTinyBuffers();
             updateLaneGraphicsCore();
             capCtx = null; setTimeout(updateExtHover, 0);
             if (window.ixPave) { try { window.ixPave(); } catch (e) { console.error(e); } }
@@ -3297,8 +3314,27 @@
 
         (function () {
             const mod = isMac ? '&#8984;' : 'Ctrl+', sh = isMac ? '&#8679;' : 'Shift+';
-            const rows = [[mod + 'Z', 'Undo'], [isMac ? mod + sh + 'Z' : 'Ctrl+Y', 'Redo' + (isMac ? '' : ' <span class="notranslate">(or Ctrl+Shift+Z)</span>')], ['Esc', 'Deselect lanes and close lane tool'],
-                ['R', 'Flip hovered lane, else selected segment'], ['Del / Backspace', 'Delete selected segments'], [sh + 'Click', 'Multi-select segments'], ['Right-click', 'Lane and node menu']];
+            const rows = [
+                [mod + 'Z', 'Undo'],
+                [isMac ? mod + sh + 'Z' : 'Ctrl+Y', 'Redo' + (isMac ? '' : ' <span class="notranslate">(or Ctrl+Shift+Z)</span>')],
+                [mod + 'C / ' + mod + 'V', 'Copy / paste selected segments'],
+                [mod + 'S / ' + mod + 'O', 'Save / load project file'],
+                ['R', 'Flip hovered lane, else selected segment'],
+                ['Del / Backspace', 'Delete selected segments or nodes (while drawing: undo last point)'],
+                ['Esc', 'Deselect, cancel and close the current tool'],
+                ['Page Up / Down', 'Change level'],
+                ['Alt (hold)', 'Place a point without snapping'],
+                [sh + 'Click', 'Multi-select segments / intersections'],
+                [sh + 'Box / Lasso', 'Add to the selection'],
+                ['Double-click', 'Add a node to the selected sidewalk / bike path (drag its orange handles to shape each curve)'],
+                ['Right-click', 'Lane, node and intersection menu'],
+                ['Enter', 'Confirm a dialog, number field or search'],
+                ['Intersection tool: Enter', 'Next step / finish on the last step'],
+                ['Intersection tool: Esc', 'Clear the current pick'],
+                ['Intersection tool: Del', 'Delete the selected path'],
+                ['Intersection tool: ' + mod + 'Z / ' + (isMac ? mod + sh + 'Z' : 'Ctrl+Y'), 'Undo / redo inside the editor'],
+                [sh + 'Box (intersection tool)', 'Remove from the node selection']
+            ];
             document.getElementById('keybind-list').innerHTML = rows.map(r => '<div><b class="notranslate" translate="no">' + r[0] + '</b> &mdash; ' + r[1] + '</div>').join('');
             document.getElementById('btn-undo').title = 'Undo (' + (isMac ? '\u2318Z' : 'Ctrl+Z') + ')';
             document.getElementById('btn-redo').title = 'Redo (' + (isMac ? '\u2318\u21E7Z' : 'Ctrl+Y') + ')';
@@ -3348,7 +3384,7 @@
                 } catch (e2) { return null; }
             }
         }
-        // "Material to > Lane > Extension": colour runs only where an extension line borders the lane (through crossings / T-joins)
+        // "Material to > Lane > Extension": color runs only where an extension line borders the lane (through crossings / T-joins)
         function collectExtPaint(lane, coords, n) {
             if (!lane.paveExt || !xBlock[lane.id]) return;
             const LY = layout(lane, n), ext = b => { const m = mkSplit(lane.marks && lane.marks[b]).rest; return m === 'extension' || (m && m.slice(7) === 'extension' && /^(single|double):/.test(m)); };
@@ -3393,7 +3429,7 @@
             if (railDraw && (railDraw.kind === 'walk' || railDraw.kind === 'bike')) { const pts = railDraw.points.slice(); if (railMouse && pts.length) pts.push(railMouse); items.push({ r: railDraw, pts }); }
             items.forEach(it => {
                 if (it.pts.length < 2) return;
-                const c = railCoords(it.pts); if (c.length < 2) return;
+                const c = railCoords(it.pts, it.r.kind); if (c.length < 2) return;
                 const isB = it.r.kind === 'bike', w = it.r.w || (isB ? 1.5 : 1.83), col = it.r.pave || (isB ? bikeDefault() : 'sidewalk'), sp = stripPoly(c, -w / 2, w / 2);
                 let spp = sp;
                 if (!isB) { try { sideStrips.forEach(st => { if (!spp || st.kind !== 'bike' || !st.poly || (st.lvl || 0) !== (it.r.lvl || 0)) return; const own = allLanes.find(l => l.id === st.laneId); if (own && it.r.points.some(pp => own.points.some(q => pp.distanceTo(q) < 3))) return; spp = turf.difference(spp, st.poly); }); } catch (e) { /* keep */ } }
@@ -3407,6 +3443,133 @@
             });
             return out;
         }
+        // ---- right-click a curb: Delete it, or Convert it to a normal white marking (a free marking that can be restyled / deleted) ----
+        const CURB_HEX = '#b9b4a9';
+        const isCurbLayer = l => l instanceof L.Polyline && !(l instanceof L.Polygon) && l.options && l.options.color === CURB_HEX && !l.options.className && !l.options.dashArray;
+        const flatLL = l => { const ll = l.getLatLngs(); return (ll.length && !Array.isArray(ll[0])) ? ll : null; };
+        const nearPoly = (pts, m, tol) => { const p = { lat: m[1], lng: m[0] }; for (let i = 0; i < pts.length - 1; i++) { if (segDistM(p, { lat: pts[i][1], lng: pts[i][0] }, { lat: pts[i + 1][1], lng: pts[i + 1][0] }) < tol) return true; } return false; };
+        const midOf = pts => { try { const ln = turf.lineString(pts); return turf.along(ln, turf.length(ln, { units: 'meters' }) / 2, { units: 'meters' }).geometry.coordinates; } catch (e) { return pts[Math.floor(pts.length / 2)]; } };
+        function drawFreeMark(m, mpp) {
+            const pts = m.pts; if (!pts || pts.length < 2) return;
+            const sp = mkSplit(m.mk), col = sp.col ? MK_COL[sp.col] : '#ffffff', rs = sp.rest || 'solid';
+            const cnt = MK_RE.test(rs) ? rs.slice(0, 6) : null, style = cnt ? rs.slice(7) : rs;
+            const mul = ({ thin: 0.6, normal: 1, thick: 1.5, xthick: 2.2 })[m.th] || (style === 'gore' ? 1.5 : 1), px = Math.max(0.6, 0.15 / mpp) * mul;
+            const base = { color: col, weight: px, className: 'free-mark', fmId: m.id, interactive: false, noClip: true, smoothFactor: 0, lineCap: 'butt' };
+            const poly = (c, o) => { if (c && c.length > 1) L.polyline(c.map(q => [q[1], q[0]]), Object.assign({}, base, o)).addTo(laneGroup); };
+            const hit = () => poly(pts, { opacity: 0, weight: 2, color: '#000000' });      // keeps an invisible handle for right-click
+            if (style.indexOf('median:') === 0) {
+                const pp = style.split(':'), kind = pp[1], w = +pp[2] || 1.8;
+                if (kind === 'painted') medFill(pts, w / 2, -w / 2, 'painted', mpp, false, 1);
+                else {
+                    const sp2 = stripPoly(pts, -w / 2, w / 2);
+                    if (sp2) L.geoJSON(sp2, { interactive: false, style: { stroke: false, fillColor: kind === 'grass' ? EXTRA_PAVE.grass.hex : PAVE.concrete.hex, fillOpacity: 1 } }).addTo(laneGroup);
+                    [w / 2, -w / 2].forEach(o => poly(getOffsetCoordinates(pts, o), { color: CURB_HEX, weight: Math.max(1, 0.3 / mpp) }));
+                }
+                hit(); return;
+            }
+            if (style === 'curb') { poly(pts, { color: CURB_HEX, weight: Math.max(1, 0.3 / mpp) }); return; }
+            if (style === 'none') { hit(); return; }
+            const gore = style === 'gore', dashStr = style === 'extension' ? (1 / mpp) + ',' + (1 / mpp) : (3 / mpp) + ',' + (9 / mpp);
+            const lines = cnt === 'double' ? [{ o: 0.15 }, { o: -0.15 }] : [{ o: 0 }];
+            if ((style === 'pass_f' || style === 'pass_b') && lines.length === 2) lines[style === 'pass_f' ? 1 : 0].dash = true;
+            lines.forEach(l => { const dash = !gore && (style === 'broken' || style === 'extension' || l.dash); poly(l.o ? getOffsetCoordinates(pts, l.o) : pts, { dashArray: dash ? dashStr : null }); });
+        }
+        // the grass right beside a deleted / converted curb section goes with it: any grass touching that section is cut away along its whole length
+        const GRASS_CUT_W = 10;
+        function cutGrass(poly) {
+            let q = poly;
+            for (const e of curbEdits) {
+                if (!e.pts || e.pts.length < 2 || !q) continue;
+                if (e._cut === undefined) { try { e._cut = { buf: turf.buffer(turf.lineString(e.pts), 0.35, { units: 'meters', steps: 2 }), band: stripPoly(e.pts, -GRASS_CUT_W, GRASS_CUT_W) }; } catch (er) { e._cut = null; } }
+                const c = e._cut; if (!c || !c.band) continue;
+                try { if (!turf.booleanIntersects(q, c.buf)) continue; q = turf.difference(q, c.band); } catch (er) { /* keep */ }
+            }
+            return q;
+        }
+        window.curbPostPass = function() {
+            const rm = []; laneGroup.eachLayer(l => { if (l instanceof L.Polyline && l.options && l.options.className === 'free-mark') rm.push(l); }); rm.forEach(l => laneGroup.removeLayer(l));
+            if (curbEdits.length) { const cs = []; laneGroup.eachLayer(l => { if (isCurbLayer(l)) cs.push(l); });
+                cs.forEach(l => { const ll = flatLL(l); if (!ll) return; const pts = ll.map(q => [q.lng, q.lat]); if (curbEdits.some(e => e.mid && nearPoly(pts, e.mid, 0.3))) laneGroup.removeLayer(l); }); }
+            const mpp = metersPerPixel(); freeMarks.forEach(m => { try { drawFreeMark(m, mpp); } catch (e) { console.error(e); } });
+        };
+        const cvMenu = document.createElement('div'); cvMenu.className = 'custom-context-menu rounded shadow-lg'; cvMenu.style.cssText = 'position:absolute;display:none;z-index:3000;';
+        map.getContainer().appendChild(cvMenu);
+        ['mousedown', 'wheel', 'keydown'].forEach(ev => document.addEventListener(ev, e => { if (!cvMenu.contains(e.target)) cvMenu.style.display = 'none'; }, true));
+        map.on('movestart zoomstart', () => { cvMenu.style.display = 'none'; });
+        function cvShow(cp, items) {
+            cvMenu.innerHTML = ''; cvMenu.onclick = null;
+            items.forEach(([label, fn]) => { const b = document.createElement('button'); b.className = 'context-menu-item'; b.textContent = label; b.onclick = ev => { ev.stopPropagation(); cvMenu.style.display = 'none'; fn(); }; cvMenu.appendChild(b); });
+            cvMenu.style.left = cp.x + 'px'; cvMenu.style.top = cp.y + 'px'; cvMenu.style.display = 'block';
+        }
+        // the marking menu for a converted line is the very same Change Marking menu a segment line gets (cloned from it)
+        function cvMarkMenu(cp, m, apply) {
+            const src = document.getElementById('ctx-mark-sub'); cvMenu.innerHTML = '';
+            const clone = src.cloneNode(true); clone.removeAttribute('id'); clone.className = '';
+            clone.querySelectorAll('[id]').forEach(el => { el.dataset.k = el.id; el.removeAttribute('id'); });
+            clone.querySelectorAll('.hidden').forEach(el => el.classList.remove('hidden')); clone.querySelectorAll('.nosub').forEach(el => el.classList.remove('nosub'));
+            const sp = mkSplit(m.mk), rs = sp.rest || 'solid', cnt = MK_RE.test(rs) ? rs.slice(0, 6) : null, cur = rs.replace(MK_RE, ''), nLines = cnt === 'double' ? 2 : 1;
+            const colNow = sp.col || 'white', thNow = m.th || (cur === 'gore' ? 'thick' : 'normal');
+            const find = k => clone.querySelector('[data-k="' + k + '"]'), hide = (k, h) => { const el = find(k); if (el) el.style.display = h ? 'none' : ''; };
+            ['thin', 'normal', 'thick', 'xthick'].forEach(t => hide('ctx-mark-th-' + t, thNow === t));
+            ['white', 'yellow', 'red'].forEach(c => hide('ctx-mark-col-' + c, colNow === c));
+            hide('ctx-mark-single', nLines === 1); hide('ctx-mark-double', nLines === 2);
+            [['solid', 'solid'], ['broken', 'broken'], ['ext', 'extension'], ['gore', 'gore']].forEach(([k, v]) => hide('ctx-mark-' + k, cur === v));
+            hide('ctx-mark-pass_f', true); hide('ctx-mark-pass_b', true);
+            { const bw = find('ctx-mk-broken-wrap'); if (bw) { bw.classList.add('nosub'); if (cur === 'broken') bw.style.display = 'none'; } }
+            hide('ctx-mark-curb', cur === 'curb');
+            const set = fn => apply(fn);
+            cvMenu.onclick = ev => {
+                const btn = ev.target.closest('[data-k]'); if (!btn) return; const k = btn.dataset.k; ev.stopPropagation();
+                if (!/^ctx-mark-/.test(k) || btn.tagName !== 'BUTTON') return;
+                if (k === 'ctx-mark-median' || k.indexOf('ctx-mark-med-') === 0) {
+                    const kd = k.replace('ctx-mark-med-', ''); if (!['concrete', 'grass', 'painted'].includes(kd)) return;
+                    cvMenu.style.display = 'none';
+                    openMedianDialog('Convert to ' + kd.charAt(0).toUpperCase() + kd.slice(1) + ' Median', kd, kd === 'painted' ? 3 : 1.8, (k2, w) => { saveHistoryState(); m.mk = 'median:' + k2 + ':' + w; updateLaneGraphics(); updateUndoRedoUI(); });
+                    return;
+                }
+                cvMenu.style.display = 'none';
+                let t = k.replace('ctx-mark-', ''); if (t === 'ext') t = 'extension';
+                if (t.indexOf('th-') === 0) return set(() => { m.th = t.slice(3); });
+                if (t.indexOf('col-') === 0) return set(() => { m.mk = mkJoin(t.slice(4), sp.rest); });
+                if (t === 'curb') return set(() => { if (m.cm) { curbEdits = curbEdits.filter(e => !(e.mid && Math.hypot(...[(e.mid[0] - m.cm[0]) * 111320 * Math.cos(e.mid[1] * Math.PI / 180), (e.mid[1] - m.cm[1]) * 110540]) < 0.6)); freeMarks = freeMarks.filter(x => x !== m); } else m.mk = 'curb'; });
+                if (t === 'none') return set(() => { freeMarks = freeMarks.filter(x => x !== m); });      // no line = nothing left to keep
+                let out;
+                const sty = rs.replace(MK_RE, '');
+                if (t === 'single' || t === 'double') { const keep = ['solid', 'broken', 'extension'].includes(sty) ? sty : 'solid'; out = t + ':' + keep; }
+                else if (t === 'pass_f' || t === 'pass_b') out = 'double:' + t;
+                else if (t === 'solid' || t === 'broken' || t === 'extension') out = cnt ? cnt + ':' + t : t;
+                else out = t;
+                set(() => { m.mk = mkJoin(sp.col, out === 'solid' && !cnt ? '' : out); });
+            };
+            while (clone.firstChild) cvMenu.appendChild(clone.firstChild);
+            cvMenu.style.left = cp.x + 'px'; cvMenu.style.top = cp.y + 'px'; cvMenu.style.display = 'block';
+            const flip = cp.x + cvMenu.offsetWidth * 2 > map.getContainer().clientWidth; cvMenu.querySelectorAll('.ctx-sub').forEach(el => el.classList.toggle('flip', flip));
+        }
+        function cvHit(cp) {
+            let best = null, bd = 7; const found = [];
+            laneGroup.eachLayer(l => { if (!(l instanceof L.Polyline) || (l instanceof L.Polygon) || !l.options) return;
+                const fm = l.options.className === 'free-mark', cu = isCurbLayer(l); if (!fm && !cu) return;
+                const ll = flatLL(l); if (!ll || ll.length < 2) return;
+                const px = ll.map(q => map.latLngToContainerPoint(q)); let d = 1e9;
+                for (let i = 0; i < px.length - 1; i++) d = Math.min(d, L.LineUtil.pointToSegmentDistance(cp, px[i], px[i + 1]));
+                if (d < bd + (fm ? 3 : 0)) found.push({ d: fm ? d - 3 : d, fm, l, pts: ll.map(q => [q.lng, q.lat]) }); });
+            found.sort((a, b) => a.d - b.d); return found[0] || null;
+        }
+        map.getContainer().addEventListener('contextmenu', function(e) {
+            if (railToolOn || e.target.closest && e.target.closest('.custom-context-menu')) return;
+            const cp = map.mouseEventToContainerPoint(e), h = cvHit(cp); if (!h) return;
+            e.preventDefault(); e.stopPropagation(); contextMenu.style.display = 'none';
+            const apply = fn => { saveHistoryState(); fn(); updateLaneGraphics(); updateUndoRedoUI(); };
+            if (!h.fm) {
+                const mid = midOf(h.pts);
+                cvShow(cp, [['Delete curb (and the grass beside it)', () => apply(() => curbEdits.push({ mid, pts: h.pts }))],
+                    ['Convert to marking (removes the grass beside it)', () => apply(() => { curbEdits.push({ mid, pts: h.pts }); freeMarks.push({ id: 'fm' + Date.now() + Math.floor(Math.random() * 1e4), pts: h.pts, mk: '', cm: mid }); })]]);
+            } else {
+                const m = freeMarks.find(x => x.id === h.l.options.fmId); if (!m) return;
+                cvMarkMenu(cp, m, apply);
+            }
+        }, true);
+
         function drawPavement() {
             sideStrips.forEach(st => {      // sidewalks never paint over another road at the same level
                 let p = st.poly;
@@ -3430,7 +3593,11 @@
             });
             const hx = c => (PAVE[c] || EXTRA_PAVE[c] || PAVE.asphalt).hex;
             try { standaloneWalkPolys().forEach(e => paintPolys.push(e)); } catch (e) { console.error(e); }
-            // sidewalks of one colour are unioned: joins are flush, overlaps do not darken, and the colour is identical everywhere
+            if (curbEdits.some(e => e.pts)) {      // grass beside a deleted / converted curb section
+                for (let i = paintPolys.length - 1; i >= 0; i--) { const e = paintPolys[i]; if (e.c !== 'grass' || !e.poly) continue; const q = cutGrass(e.poly); if (!q) paintPolys.splice(i, 1); else e.poly = q; }
+                sideStrips.forEach(st => { if (st.kind === 'buf' && st.poly) st.poly = cutGrass(st.poly) || null; });
+            }
+            // sidewalks of one color are unioned: joins are flush, overlaps do not darken, and the color is identical everywhere
             {
                 const groups = {};
                 paintPolys.forEach((e, i) => { if (e.merge) { const h = hx(e.c); (groups[h] = groups[h] || { list: [], last: i, c: e.c }); groups[h].list.push(e.poly); groups[h].last = i; } });
@@ -3615,6 +3782,7 @@
                     let mSk = ft.m || 0, acSk = 0;      // skew: slope of the crosswalk / stop bar / yield line across the road
                     if ((ft.t === 'stop' || ft.t === 'yield') && ft.auto && ft.cid) { const cx = (lane.feats || []).find(q => q.id === ft.cid); if (cx) { mSk = cx.m || 0; ft.f = Math.max(0, Math.min(1, cx.f - (ft.dd || 1) * (0.375 + (cx.v === 'ladder' ? 1.8 : 1.5) + 3.048 * Math.sqrt(1 + mSk * mSk)) / len)); acSk = -cG; } }
                     if ((ft.t === 'stop' || ft.t === 'yield') && ft.auto && !ft.cid && ft.wk && String(ft.wk).indexOf('r:') === 0 && ft.am !== false) acSk = -cG;   // rail stop bars run parallel to the rail through the lane centre
+                    if (ft.t === 'hump' && ft.auto && ft.cid) { const cx = (lane.feats || []).find(q => q.id === ft.cid); if (cx) { const sgh = (lane.dirs && lane.dirs[k] === -1) ? -1 : 1; ft.f = Math.max(0, Math.min(1, cx.f - sgh * 2.41 / len)); } }      // the arrow sits just before the raised crosswalk, pointing at it
                     const sk = a => mSk * (a + acSk);
                     const d = Math.max(0, Math.min(len, ft.f * len)), at = m => turf.along(line, Math.max(0, Math.min(len, m)) / 1000, { units: 'kilometers' }).geometry.coordinates;
                     const P = at(d); let br = turf.bearing(turf.point(at(d - 0.5)), turf.point(at(d + 0.5)));
@@ -3654,6 +3822,7 @@
                                 const sg = (lane.dirs[j] === -1) ? -1 : 1, a = -laneCenterOff(lane, n, j), w = LY.ws[j], tt = lane.types && lane.types[j];
                                 if (isMedT(tt)) continue;
                                 if (isBikeT(tt)) { for (let c = a - w / 2 + 0.25; c + 0.2 <= a + w / 2 - 0.05; c += 0.45) poly([[c, -sg * 1.35], [c + 0.2, -sg * 1.35], [c + 0.1, -sg * 1.7]]); continue; }
+                                if (ft.hmp) continue;      // speed hump arrows are separate (deletable) features now
                                 const arm = Math.min(0.9, w * 0.3), B = 1.8, th = 0.32, gap = 0.25 * Math.SQRT2;
                                 chev(a, -sg * B, arm, th, sg);                        // chevron, apex toward the crosswalk
                                 // yield triangle nested in the chevron: same overall width, 45-degree sides parallel to the chevron so the gap stays even
@@ -3679,7 +3848,7 @@
                     }
                     else if (ft.t === 'hump') {
                         // ONE chevron + nested yield triangle, same size and shape as the raised crosswalk's, pointing at the hump
-                        const sg = (lane.dirs && lane.dirs[k] === -1) ? -1 : 1, arm = Math.min(0.9, W * 0.3), th = 0.32, gap = 0.25 * Math.SQRT2, B = 1.8;
+                        const sg = (lane.dirs && lane.dirs[k] === -1) ? -1 : 1, arm = Math.min(0.9, W * 0.3), th = 0.32, gap = 0.25 * Math.SQRT2, B = -(arm + th) / 2;      // centred on the hump position (the click)
                         const pl = pts => L.polygon(pts.map(q => F(q[0], q[1])), { stroke: false, fillColor: '#ffffff', fillOpacity: 0.95, interactive: false }).addTo(laneGroup);
                         pl([[0, -sg * B], [arm, -sg * (B + arm)], [arm, -sg * (B + arm + th)], [0, -sg * (B + th)], [-arm, -sg * (B + arm + th)], [-arm, -sg * (B + arm)]]);
                         const ty = B + th + gap, hh = Math.max(0.2, arm - gap);
@@ -3728,7 +3897,7 @@
         $('ctx-feat-del').onclick = () => {
             contextMenu.style.display = 'none'; const f = lastNearFeat; if (!f) return;
             if (f.ixDel) { saveHistoryState(); f.ixDel(); updateLaneGraphics(); updateUndoRedoUI(); return; }
-            saveHistoryState(); f.lane.feats = f.lane.feats.filter(x => x !== f.ft); updateLaneGraphics(); updateUndoRedoUI();
+            saveHistoryState(); f.lane.feats = f.lane.feats.filter(x => x !== f.ft && !(f.ft.t === 'cross' && x.t === 'hump' && x.auto && x.cid === f.ft.id)); updateLaneGraphics(); updateUndoRedoUI();
         };
         $('ctx-feat-wrap').addEventListener('mouseenter', () => { const sub = $('ctx-feat-sub'); sub.classList.remove('flip'); if (sub.getBoundingClientRect().right > window.innerWidth - 8) sub.classList.add('flip'); });
         function placeFeat(ft) {
@@ -3746,6 +3915,7 @@
                 ft.k = k; ft.f = len ? np.properties.location / len : 0.5;
                 if (ft.t === 'cross') ft.id = 'x' + Math.random().toString(36).slice(2, 8);
                 (lane.feats = lane.feats || []).push(ft);
+                if (ft.t === 'cross' && ft.v === 'raised' && window.ensureCrossStops) window.ensureCrossStops(lane, ft);
                 if (ft.t === 'cross' && ft.v !== 'raised') {   // auto stop bars before the crosswalk for each direction of travel (delete individually via 'Delete Nearby Feature')
                     ensureModel(lane, n); const lm = len * 1000 || 1;
                     [1, -1].forEach(d => {
@@ -3874,7 +4044,7 @@
             const saveCap = capCtx; capCtx = null;
             try {
                 bikes.forEach(b => {
-                    const bc = railCoords(b.points), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2 - 0.6, bw / 2 + 0.6); if (!band) return;
+                    const bc = railCoords(b.points, b.kind), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2 - 0.6, bw / 2 + 0.6); if (!band) return;
                     allLanes.forEach(lane => {
                         if (!lane.isCompleted || !lane.points || lane.points.length < 2 || (lane.lvl || 0) !== (b.lvl || 0)) return;
                         if (b.points.some(p => lane.points.some(q => p.distanceTo(q) < 3))) return;
@@ -4015,7 +4185,7 @@
             }
             return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="' + px + '" height="' + px + '">' + g + '</svg>';
         }
-        // sg(code, name, shape, face, textColour, text lines, extras)
+        // sg(code, name, shape, face, textColor, text lines, extras)
         function sg(c, n, sh, f, tc, t, o) {
             const d = { c, n, sh, f, tc, t: t || [], bd: (f === SG.G || f === SG.B || f === SG.N) ? SG.W : SG.K, w: 1.4 };
             if (sh === 'oct') d.bd = SG.W;
@@ -4221,7 +4391,6 @@
             const k = e.key.toLowerCase();
             if (k === 's') { e.preventDefault(); saveFile(); } else if (k === 'o') { e.preventDefault(); $('load-file').click(); }
         });
-        $('keybind-list').insertAdjacentHTML('beforeend', '<div><b class="notranslate" translate="no">' + (isMac ? '&#8984;' : 'Ctrl+') + 'S / O</b> &mdash; Save / Load project file</div>');
 
 
         // ---- Rail, bike paths, bike lanes in roads, sidewalks and levels ----
@@ -4230,11 +4399,51 @@
         function isSpecT(t) { return t === 'turn' || isBikeT(t) || isMedT(t); }
         const RAIL_STUB = { widthMeters: 3, totalLaneCount: 1, dirs: [1], types: ['normal'], marks: {}, tram: [false] };
         const llOfC = c => c.map(q => [q[1], q[0]]);
-        function railCoords(pts) {
+        // sidewalk / bike paths: each node may carry spline handles (ho = out toward the next node, hi = in from the previous one, as [lat, lng]);
+        // a path with no handles keeps the automatic smoothing, one with any handle is a chain of cubic curves (a missing handle gets a smooth default)
+        function railTan(pts, i) { const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], k = (i === 0 || i === pts.length - 1) ? 1 : 0.5; return [(b.lat - a.lat) * k, (b.lng - a.lng) * k]; }
+        function segHandles(pts, i, kind) {
+            const A = pts[i], B = pts[i + 1];
+            if (kind === 'walk' || kind === 'bike') {      // sidewalk / bike paths are straight until the middle of a line is dragged
+                const dl = (B.lat - A.lat) / 3, dn = (B.lng - A.lng) / 3;
+                return { p1: A.ho || [A.lat + dl, A.lng + dn], p2: B.hi || [B.lat - dl, B.lng - dn] };
+            }
+            const t0 = railTan(pts, i), t1 = railTan(pts, i + 1);
+            return { p1: A.ho || [A.lat + t0[0] / 3, A.lng + t0[1] / 3], p2: B.hi || [B.lat - t1[0] / 3, B.lng - t1[1] / 3] };
+        }
+        function bezPt(A, h1, h2, B, t) { const u = 1 - t, f = (a, b, c, d) => u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d; return [f(A.lat, h1[0], h2[0], B.lat), f(A.lng, h1[1], h2[1], B.lng)]; }
+        function bezRailCoords(pts, kind) {
+            const out = [];
+            for (let i = 0; i < pts.length - 1; i++) {
+                const h = segHandles(pts, i, kind), N = 20;
+                for (let k = (i ? 1 : 0); k <= N; k++) { const q = bezPt(pts[i], h.p1, h.p2, pts[i + 1], k / N); out.push([q[1], q[0]]); }
+            }
+            return out;
+        }
+        function railHasHandles(pts) { return pts.length > 1 && pts.some(p => p.ho || p.hi); }
+        function railSetHandle(r, i, which, ll) {
+            const P = r.points[i], o = which === 'ho' ? 'hi' : 'ho', v = [ll.lat, ll.lng];
+            P[which] = v;
+            const dl = P.lat - v[0], dn = P.lng - v[1], dm = Math.hypot(dl, dn) || 1e-12;
+            if (P[o]) { const len = Math.hypot(P[o][0] - P.lat, P[o][1] - P.lng); P[o] = [P.lat + dl / dm * len, P.lng + dn / dm * len]; }
+            else P[o] = [P.lat + dl, P.lng + dn];      // smooth node: the other handle mirrors this one
+        }
+        function railCoords(pts, kind) {
+            if (railHasHandles(pts)) return bezRailCoords(pts, kind);
             const u = [];
             pts.forEach(p => { const q = [p.lng, p.lat], pv = u[u.length - 1]; if (!pv || Math.abs(q[0] - pv[0]) > 1e-7 || Math.abs(q[1] - pv[1]) > 1e-7) u.push(q); });
+            if (kind === 'walk' || kind === 'bike') return u;
             try { smoothInto(u, RAIL_STUB); } catch (e) { /* sharp */ }
             return u;
+        }
+        function drawTramRails(c, mpp) {
+            if (!c || c.length < 2) return;
+            const px = m => Math.max(1, m / mpp);
+            [0.7175, -0.7175].forEach(o => {
+                const r = getOffsetCoordinatesRaw(c, o); if (r.length < 2) return;
+                L.polyline(llOfC(r), { color: '#111827', weight: px(0.3), opacity: 0.85, lineCap: 'butt', interactive: false }).addTo(laneGroup);
+                L.polyline(llOfC(r), { color: '#d1d5db', weight: px(0.14), opacity: 1, lineCap: 'butt', interactive: false }).addTo(laneGroup);
+            });
         }
         function drawTram(c, mpp) {
             if (!c || c.length < 2) return;
@@ -4306,10 +4515,11 @@
                 if (two) try { clipSplit(c, m).inn.forEach(pc => { if (pc.length > 1) L.polyline(llOfC(pc), { color: Yc, weight: Math.max(0.6, 0.15 / mpp), dashArray: BRK, interactive: false, smoothFactor: 0 }).addTo(laneGroup); }); } catch (e) { /* skip */ }
             });
         }
-        function stripCurb(coords, off, mpp, polys) {
+        function stripCurb(coords, off, mpp, polys, onGrass) {
             const ec = getOffsetCoordinates(coords, off); if (ec.length < 2) return; let pieces = [ec];
             polys.forEach(p => { const nx = []; pieces.forEach(pc => { try { clipSplit(pc, p).out.forEach(x => nx.push(x)); } catch (e) { nx.push(pc); } }); pieces = nx; });
-            pieces.forEach(pc => { if (pc.length > 1) L.polyline(llOfC(pc), { color: '#b9b4a9', weight: Math.max(1, 0.3 / mpp), interactive: false, noClip: true, smoothFactor: 0 }).addTo(laneGroup); });
+            const cut1 = pieces.length !== 1 || pieces[0].length !== ec.length;
+            pieces.forEach(pc => { if (pc.length > 1 && !(cut1 && !onGrass && curbLenM(pc) < 1.5)) L.polyline(llOfC(pc), { color: '#b9b4a9', weight: Math.max(1, 0.3 / mpp), interactive: false, noClip: true, smoothFactor: 0 }).addTo(laneGroup); });
         }
 
         // --- bike lane inside a road: 3 ft buffer next to the nearest lane, the rest is the path ---
@@ -4324,10 +4534,12 @@
             return g;
         }
         // a line that is cut where it enters other roads: solid outside, optional dashed style inside
-        function bikeLine(ec, o, polys, inter) {
+        function bikeLine(ec, o, polys, inter, excl) {
             let pieces = [ec], ins = [];
             polys.forEach(poly => { const nx = []; pieces.forEach(pc => { const r = clipSplit(pc, poly); r.out.forEach(x => nx.push(x)); r.inn.forEach(x => ins.push(x)); }); pieces = nx; });
             if (inter && inter.alt) { ins = []; let ps = [inter.alt]; polys.forEach(poly => { const nx = []; ps.forEach(pc => { const r = clipSplit(pc, poly); r.out.forEach(x => nx.push(x)); r.inn.forEach(x => ins.push(x)); }); ps = nx; }); }
+            // where the edge turns into a curb (excl zones) the dashed white line goes too, exactly where the green stops: white / green / white stay together
+            if (excl && excl.length && ins.length) excl.forEach(z => { const nx = []; ins.forEach(pc => { try { clipSplit(pc, z).out.forEach(x => nx.push(x)); } catch (e) { nx.push(pc); } }); ins = nx; });
             pieces.forEach(pc => { if (pc.length > 1) L.polyline(llOfC(pc), Object.assign({ interactive: false, smoothFactor: 0 }, o)).addTo(laneGroup); });
             if (inter) ins.forEach(x => {
                 if (x.length < 2) return;
@@ -4350,7 +4562,7 @@
                     if (eu) { if (ctr) L.polyline(llOfC(ec), { color, weight: px, dashArray: MED, lineCap: 'butt', interactive: false, smoothFactor: 0 }).addTo(laneGroup); else if (alt && alt.length > 1 && it) L.polyline(llOfC(alt), { color, weight: thick, dashArray: EXD, lineCap: 'butt', interactive: false, smoothFactor: 0 }).addTo(laneGroup); return; }
                     L.polyline(llOfC(ec), { color, weight: px, dashArray: MED, interactive: false, smoothFactor: 0 }).addTo(laneGroup); return;
                 }
-                bikeLine(ec, { color, weight: px, dashArray: dash }, white ? cutX : polys, it ? (eu ? (ctr ? { dash: MED, ref: coords } : { dash: EXD, ref: coords, w: thick, alt, pitch: 1.2 }) : { dash: MED, ref: coords }) : null);
+                bikeLine(ec, { color, weight: px, dashArray: dash }, white ? cutX : polys, it ? (eu ? (ctr ? { dash: MED, ref: coords } : { dash: EXD, ref: coords, w: thick, alt, pitch: 1.2 }) : { dash: MED, ref: coords }) : null, (extraCut && extraCut.length) ? extraCut : null);
             };
             const cc = getOffsetCoordinates(coords, bc);
             if (inter) green(cc); else if (polys.length && coords.length > 1) {
@@ -4360,6 +4572,7 @@
                     const pl = turf.lineString(coords), L0 = turf.length(pl, { units: 'meters' }), hex = PAVE.green.hex, band = stripPoly(coords, lo, hi);
                     if (band) polys.forEach(poly => {
                         let reg = null; try { reg = turf.intersect(band, poly); } catch (e) { reg = null; } if (!reg) return;
+                        if (extraCut && extraCut.length) extraCut.forEach(z => { if (!reg) return; try { reg = turf.difference(reg, z); } catch (e) { /* keep */ } }); if (!reg) return;
                         if (eu) { L.geoJSON(reg, { interactive: false, style: { stroke: false, fillColor: PAVE.red.hex, fillOpacity: 1 } }).addTo(laneGroup); return; }      // European: one solid red fill
                         const rb = turf.bbox(reg);
                         for (let a0 = 0; a0 < L0; a0 += 1.5) {
@@ -4391,7 +4604,11 @@
                     blocks.forEach(bp => { if (sp) { try { sp = turf.difference(sp, bp); } catch (e) { /* keep */ } } });
                     if (sp) paintPolys.push({ poly: sp, c: 'concrete' });
                     bikeMarkings(coords, g.bikeLo, g.bikeHi, g.two, mpp, blocks, k === 0 ? [2, 1] : [1, 2], false);
-                } else bikeMarkings(coords, g.bikeLo, g.bikeHi, g.two, mpp, blocks, [1, 1], false);
+                } else {
+                    // a bike lane beside a grass / concrete median: that edge is the median's curb, not a white line
+                    const medNb = j => j >= 0 && j < n && (lane.types[j] === 'medg' || lane.types[j] === 'medc');
+                    bikeMarkings(coords, g.bikeLo, g.bikeHi, g.two, mpp, blocks, [medNb(k + 1) ? 0 : 1, medNb(k - 1) ? 0 : 1], false);
+                }
             });
         }
         // a higher level covers lower roads under it, so bridges hide what runs beneath
@@ -4420,7 +4637,7 @@
                 if (sw.bike) {
                     const bw = sw.bike === 'two' ? 3.0 : 1.5, a0 = a; strip(bw, sw.bikePave || bikeDefault(), 'bike');
                     bikeMarkings(coords, Math.min(sg * a0, sg * (a0 + bw)), Math.max(sg * a0, sg * (a0 + bw)), sw.bike === 'two', mpp, polys, [0, 0], false);
-                    if (sw.buf > 0.01) stripCurb(coords, sg * a0, mpp, polys); stripCurb(coords, sg * (a0 + bw), mpp, polys);      // no curb against the road when the bike lane touches it: the white edge line is drawn there instead
+                    if (sw.buf > 0.01) stripCurb(coords, sg * a0, mpp, polys, true); stripCurb(coords, sg * (a0 + bw), mpp, polys);      // no curb against the road when the bike lane touches it: the white edge line is drawn there instead
                 }
                 if (sw.w > 0.01) strip(sw.w, sw.pave || 'concrete', 'walk');
             });
@@ -4480,7 +4697,6 @@
             if (tg === 'SELECT' || tg === 'TEXTAREA' || (tg === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox')) return;
             if (e.key === 'PageUp') { e.preventDefault(); changeLevel(1); } else if (e.key === 'PageDown') { e.preventDefault(); changeLevel(-1); }
         });
-        $('keybind-list').insertAdjacentHTML('beforeend', '<div><b class="notranslate" translate="no">Page Up / Down</b> &mdash; Change level (moves selected segments too)</div>');
 
         // --- rail (kind "rail") and off-street bike path (kind "bike") objects ---
         function railTargets(ex, kind) {
@@ -4595,6 +4811,19 @@
             const c = map.latLngToContainerPoint(latlng); let bi = -1, bd = Infinity;
             for (let i = 0; i < r.points.length - 1; i++) { const d = L.LineUtil.pointToSegmentDistance(c, map.latLngToContainerPoint(r.points[i]), map.latLngToContainerPoint(r.points[i + 1])); if (d < bd) { bd = d; bi = i; } }
             if (bi < 0) return;
+            if (railHasHandles(r.points)) {      // curved path: split the cubic where it was clicked, so the shape stays exactly as it was
+                let bs = -1, bt = 0, bdd = Infinity;
+                for (let i = 0; i < r.points.length - 1; i++) {
+                    const h = segHandles(r.points, i, r.kind);
+                    for (let k = 1; k < 40; k++) { const t = k / 40, q = bezPt(r.points[i], h.p1, h.p2, r.points[i + 1], t), d = c.distanceTo(map.latLngToContainerPoint(L.latLng(q[0], q[1]))); if (d < bdd) { bdd = d; bs = i; bt = t; } }
+                }
+                if (bs < 0) return;
+                const A = r.points[bs], B = r.points[bs + 1], h = segHandles(r.points, bs, r.kind), t = bt, lp = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                const P0 = [A.lat, A.lng], P3 = [B.lat, B.lng], Q0 = lp(P0, h.p1), Q1 = lp(h.p1, h.p2), Q2 = lp(h.p2, P3), R0 = lp(Q0, Q1), R1 = lp(Q1, Q2), S = lp(R0, R1);
+                const ns = L.latLng(S[0], S[1]);
+                if (r.points.some(q => q.distanceTo(ns) < 0.3)) return;
+                saveHistoryState(); A.ho = Q0; ns.hi = R0; ns.ho = R1; B.hi = Q2; r.points.splice(bs + 1, 0, ns); updateLaneGraphics(); updateUndoRedoUI(); return;
+            }
             const np = map.containerPointToLatLng(L.LineUtil.closestPointOnSegment(c, map.latLngToContainerPoint(r.points[bi]), map.latLngToContainerPoint(r.points[bi + 1])));
             if (r.points.some(q => q.distanceTo(np) < 0.3)) return;
             saveHistoryState(); r.points.splice(bi + 1, 0, np); updateLaneGraphics(); updateUndoRedoUI();
@@ -4698,7 +4927,7 @@
                 const lane = allLanes.find(l => l.id === st.laneId); if (!lane || lane.points.length < 2) return;
                 bikes.forEach(b => {
                     if ((b.lvl || 0) !== (st.lvl || 0) || b.points.some(p => lane.points.some(q => p.distanceTo(q) < 3))) return;
-                    const bc = railCoords(b.points), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2, bw / 2); if (!band) return;
+                    const bc = railCoords(b.points, b.kind), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2, bw / 2); if (!band) return;
                     let hit; try { hit = turf.intersect(st.poly, band); } catch (e) { return; } if (!hit) return;
                     const rings = hit.geometry.type === 'Polygon' ? [hit.geometry.coordinates[0]] : hit.geometry.coordinates.map(q => q[0]);
                     rings.forEach(ring => {
@@ -4729,7 +4958,7 @@
             allRails.forEach(b => {
                 if (b.kind !== 'bike' || !b.points || b.points.length < 2 || (b.lvl || 0) !== (r.lvl || 0)) return;
                 if (r.points.some(p => b.points.some(q => p.distanceTo(q) < 3))) return;
-                const bc = railCoords(b.points), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2, bw / 2); if (!band) return;
+                const bc = railCoords(b.points, b.kind), bw = b.w || 1.5, band = stripPoly(bc, -bw / 2, bw / 2); if (!band) return;
                 let inn; try { inn = clipSplit(c, band).inn; } catch (e) { return; }
                 inn.forEach(pc => {
                     if (pc.length < 2) return;
@@ -4804,8 +5033,60 @@
                 });
             });
         }
+        // a rail that meets a tram track leaves it along the track's own direction, so the two pairs of rails join without a kink
+        function tramTanAt(trams, lvl, e, toward) {
+            let best = null;
+            trams.forEach(t => {
+                if (t.lvl !== lvl) return;
+                t.lines.forEach(l => {
+                    try {
+                        const d = turf.pointToLineDistance(turf.point(e), l, { units: 'meters' }); if (!(d < 1.0) || (best && d >= best.d)) return;
+                        const np = turf.nearestPointOnLine(l, turf.point(e), { units: 'meters' }), cs = l.geometry.coordinates, i = Math.max(0, Math.min(np.properties.index, cs.length - 2));
+                        const A = xyOf(cs[i], e), B = xyOf(cs[i + 1], e); let dx = B[0] - A[0], dy = B[1] - A[1]; const L0 = Math.hypot(dx, dy); if (!L0) return; dx /= L0; dy /= L0;
+                        const T = xyOf(toward, e); if (dx * T[0] + dy * T[1] < 0) { dx = -dx; dy = -dy; }
+                        best = { d, t: [dx, dy] };
+                    } catch (x) { /* skip */ }
+                });
+            });
+            return best && best.t;
+        }
+        function withTramTangents(r, trams) {
+            const pts = r.points; if ((r.kind || 'rail') !== 'rail' || !pts || pts.length < 2 || !trams.length) return pts;
+            const P = pts.map(p => ({ lat: p.lat, lng: p.lng, ho: p.ho, hi: p.hi })), lvl = r.lvl || 0; let any = false;
+            const fix = (i, j, which) => {
+                const n = P[i]; if (n[which]) return;
+                const nb = P[j], t = tramTanAt(trams, lvl, [n.lng, n.lat], [nb.lng, nb.lat]); if (!t) return;
+                const v = xyOf([nb.lng, nb.lat], [n.lng, n.lat]), k = Math.max(2, Math.hypot(v[0], v[1]) / 3), q = llOf([t[0] * k, t[1] * k], [n.lng, n.lat]);
+                n[which] = [q[1], q[0]]; any = true;
+            };
+            fix(0, 1, 'ho'); fix(P.length - 1, P.length - 2, 'hi');
+            return any ? P : pts;
+        }
+        // what a tram-track bed must not cover. Roads (asphalt) are never covered. Grassy track also leaves concrete / bike paths alone; concrete track may cover grass.
+        function railBedBlockers(lvl, trk) {
+            const out = [];
+            allLanes.forEach(o => { const po = polyById[o.id]; if (o.isCompleted && po && (o.lvl || 0) === lvl) out.push(po); });
+            try { (trk === 'concrete' ? (window.ixFillMinusIsl ? window.ixFillMinusIsl(lvl) : []) : (window.ixFillPolys ? window.ixFillPolys(lvl) : [])).forEach(q => out.push(q)); } catch (e) { /* none */ }
+            if (trk === 'grass') {
+                sideStrips.forEach(q => { if (q.poly && (q.lvl || 0) === lvl && q.kind !== 'buf') out.push(q.poly); });
+                try { (window.ixPaint || []).concat(window.ixTopPaint || []).forEach(q => { if (q && q.poly && (q.lvl || 0) === lvl && q.c !== 'grass') out.push(q.poly); }); } catch (e) { /* none */ }
+                try { standaloneWalkPolys().forEach(q => { if (q.poly && (q.lvl || 0) === lvl) out.push(q.poly); }); } catch (e) { /* none */ }
+                try { if (typeof allIx !== 'undefined') allIx.forEach(x => { if ((x.lvl || 0) !== lvl) return; (x.islands || []).forEach(is => { if ((is.kind || 'concrete') === 'concrete') { try { out.push(turf.polygon([is.ring])); } catch (e) { /* skip */ } } }); }); } catch (e) { /* none */ }
+            }
+            return out;
+        }
+        function railBedDiff(poly, blockers) {
+            let p = poly; const bb = turf.bbox(poly);
+            for (const z of blockers) {
+                if (!p) break;
+                const zb = z._bbx || (z._bbx = turf.bbox(z)); if (zb[0] > bb[2] || zb[2] < bb[0] || zb[1] > bb[3] || zb[3] < bb[1]) continue;
+                try { p = turf.difference(p, z); } catch (e) { /* keep */ }
+            }
+            return p;
+        }
         function renderRails() {
             const mpp = metersPerPixel(), px = m => Math.max(1, m / mpp), ll = llOfC;
+            if (!railDraw) bedCache.clear();
             const items = allRails.map(r => ({ r, pts: r.points }));
             if (railDraw) { const pts = railDraw.points.slice(); if (railMouse && pts.length) pts.push(railMouse); items.push({ r: railDraw, pts }); }
             if (railDraw && railDraw.points.length) {      // live measurements, same as the lane tool
@@ -4816,12 +5097,6 @@
                 }
                 if (railMouse && mp.length > 1) L.marker(railMouse, { interactive: false, icon: L.divIcon({ className: 'lane-tooltip rounded shadow', html: '<span style="color:#ffffff;">Length: ' + formatLength(tot) + '</span>', iconSize: [140, 30], iconAnchor: [-10, 25] }) }).addTo(laneGroup);
             }
-            items.forEach(it => { it.c = it.pts.length >= 2 ? railCoords(it.pts) : []; });
-            const live = items.filter(it => it.c.length >= 2).sort((a, b) => (a.r.lvl || 0) - (b.r.lvl || 0));
-            live.filter(it => it.r.kind === 'walk').forEach(it => { try { drawWalkCrossings(it.r, mpp, true); } catch (e) { console.error(e); } });
-            try { drawStripBikeCrossings(mpp); } catch (e) { console.error(e); }
-            live.filter(it => it.r.kind === 'bike').forEach(it => { let mk = []; try { mk = bikeMasks(it.r); } catch (e) { mk = []; } drawBikePath(it.c, it.r.w || 1.5, !!it.r.two, mpp, bikePolysFor(it.r), [it.c[0], it.c[it.c.length - 1]], it.r.pave, mk); try { drawBikeNonVeh(it.r, it.c, it.r.w || 1.5, !!it.r.two, mpp, mk); } catch (e) { console.error(e); } try { drawBikeBufferCurbs(it.r, it.c, mpp); } catch (e) { console.error(e); } });
-            const rails = live.filter(it => it.r.kind !== 'bike' && it.r.kind !== 'walk'), fine = mpp < 0.3;
             // a rail that joins an in-road tram lane looks like tram track (grey bed, two plain rails) wherever it lies inside that road
             const trams = [];
             allLanes.forEach(lane => {
@@ -4829,11 +5104,38 @@
                     const poly = polyById[lane.id]; if (!lane.isCompleted || !poly || !lane.tram || !lane.tram.some(Boolean)) return;
                     const n = lane.totalLaneCount || 1; ensureModel(lane, n); const co = lanePathCoords(lane), ends = [], lines = [];
                     lane.tram.forEach((on, k) => { if (!on || k >= n) return; const sc = getOffsetCoordinates(co, laneCenterOff(lane, n, k)); if (sc.length > 1) { ends.push(sc[0], sc[sc.length - 1]); lines.push(turf.lineString(sc)); } });
-                    trams.push({ poly, ends, lines, lvl: lane.lvl || 0 });
+                    const side = sideStrips.filter(q => q.laneId === lane.id && q.poly).map(q => ({ poly: q.poly, kind: q.kind }));      // grass buffer, bike lane and walk of the same segment
+                    trams.push({ poly, ends, lines, side, lvl: lane.lvl || 0 });
                 } catch (e) { /* skip */ }
             });
+            try { if (typeof allIx !== 'undefined') allIx.forEach(x => (x.conns || []).forEach(cn => {      // tram paths drawn in the intersection tool
+                if (cn.kind !== 'tram' || !window.ixConnCoords) return;
+                const co = window.ixConnCoords(cn); if (!co || co.length < 2) return;
+                const poly = stripPoly(co, -1.6, 1.6); if (!poly) return;
+                trams.push({ poly, ends: [co[0], co[co.length - 1]], lines: [turf.lineString(co)], side: [], lvl: x.lvl || 0, ix: true });
+            })); } catch (e) { /* skip */ }
+            const cmap = new Map();
+            items.forEach(it => { it.c = it.pts.length >= 2 ? railCoords(withTramTangents(it.r === railDraw ? { kind: it.r.kind, lvl: it.r.lvl, points: it.pts } : it.r, trams), it.r.kind) : []; cmap.set(it.r, it.c); });
+            const live = items.filter(it => it.c.length >= 2).sort((a, b) => (a.r.lvl || 0) - (b.r.lvl || 0));
+            if (!railDraw) allRails.forEach(r => {      // extension arrows at both ends of every rail (shown when the mouse is near an end)
+                if ((r.kind || 'rail') !== 'rail' || !r.points || r.points.length < 2 || (r.lvl || 0) !== curLevel) return;
+                [true, false].forEach(atStart => {
+                    try {
+                        const P = r.points, e = atStart ? P[0] : P[P.length - 1], prev = atStart ? (e.ho ? L.latLng(e.ho[0], e.ho[1]) : P[1]) : (e.hi ? L.latLng(e.hi[0], e.hi[1]) : P[P.length - 2]);
+                        const bearing = turf.bearing(turf.point([prev.lng, prev.lat]), turf.point([e.lng, e.lat]));
+                        const tgt = turf.destination(turf.point([e.lng, e.lat]), 3.0, bearing, { units: 'meters' }).geometry.coordinates;
+                        const mk = L.marker([tgt[1], tgt[0]], { zIndexOffset: 10005, icon: L.divIcon({ className: 'bg-transparent text-blue-600 font-extrabold text-base ext-ctl', html: '<div style="transform: rotate(' + (bearing - 90) + 'deg);">➜</div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(laneGroup);
+                        extCtl.push({ marker: mk, node: L.latLng(e.lat, e.lng) });
+                        setTimeout(() => { const el = mk.getElement(); if (el) el.onclick = ev => { ev.stopPropagation(); railExtend(r, atStart); }; }, 50);
+                    } catch (er) { /* skip this end */ }
+                });
+            });
+            live.filter(it => it.r.kind === 'walk').forEach(it => { try { drawWalkCrossings(it.r, mpp, true); } catch (e) { console.error(e); } });
+            try { drawStripBikeCrossings(mpp); } catch (e) { console.error(e); }
+            live.filter(it => it.r.kind === 'bike').forEach(it => { let mk = []; try { mk = bikeMasks(it.r); } catch (e) { mk = []; } drawBikePath(it.c, it.r.w || 1.5, !!it.r.two, mpp, bikePolysFor(it.r), [it.c[0], it.c[it.c.length - 1]], it.r.pave, mk); try { drawBikeNonVeh(it.r, it.c, it.r.w || 1.5, !!it.r.two, mpp, mk); } catch (e) { console.error(e); } try { drawBikeBufferCurbs(it.r, it.c, mpp); } catch (e) { console.error(e); } });
+            const rails = live.filter(it => it.r.kind !== 'bike' && it.r.kind !== 'walk'), fine = mpp < 0.3;
             rails.forEach(it => {
-                it.out = [it.c]; it.inn = [];
+                it.out = [it.c]; it.inn = []; it.top = [];
                 const e0 = it.c[0], e1 = it.c[it.c.length - 1];
                 trams.forEach(t => {
                     if (t.lvl !== (it.r.lvl || 0)) return;
@@ -4842,11 +5144,35 @@
                     const nx = [];
                     it.out.forEach(pc => { const r = clipSplit(pc, t.poly); r.out.forEach(x => nx.push(x)); r.inn.forEach(x => it.inn.push(x)); });
                     it.out = nx;
+                    if (it.inn.length && ![e0, e1].some(e => t.ends.some(q => { const v = xyOf(q, e); return Math.hypot(v[0], v[1]) < 1.5; }))) {      // a fork: the diverging pair is not drawn where it still lies on the track that continues
+                        try { t.lines.forEach(l => { const bf = turf.buffer(l, 0.5, { units: 'meters', steps: 4 }); if (!bf) return; const k2 = []; it.inn.forEach(pc => { clipSplit(pc, bf).out.forEach(x => { if (x.length > 1) k2.push(x); }); }); it.inn = k2; }); } catch (x) { /* keep */ }
+                    }
+                    if (t.ix) (it.sideBlk = it.sideBlk || []).push(t.poly);
+                    (t.side || []).forEach(sp => {      // over the segment's walk and bike lane (and a grass buffer, for grassy track): the tracks only, laid on top; concrete track keeps its concrete over the grass buffer
+                        if (sp.kind !== 'buf') (it.sideBlk = it.sideBlk || []).push(sp.poly);
+                        if (it.r.trk === 'concrete' && sp.kind === 'buf') return;
+                        const n2 = []; it.out.forEach(pc => { const r = clipSplit(pc, sp.poly); r.out.forEach(x => n2.push(x)); r.inn.forEach(x => it.top.push(x)); }); it.out = n2;
+                    });
                 });
             });
-            rails.forEach(it => it.out.forEach(pc => { if (pc.length > 1) L.polyline(ll(pc), { color: '#6b7280', weight: px(3.4), opacity: 0.92, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(laneGroup); }));
-            rails.forEach(it => it.out.forEach(pc => { if (pc.length > 1) L.polyline(ll(pc), { color: '#4a392c', weight: px(2.6), opacity: fine ? 0.95 : 0.55, lineCap: 'butt', lineJoin: 'round', interactive: false, dashArray: fine ? (0.26 / mpp) + ',' + (0.44 / mpp) : null }).addTo(laneGroup); }));
-            rails.forEach(it => { try { drawRailCrossings(it, mpp); } catch (e) { console.error(e); } });
+            const tramStyle = it => it.r.trk === 'grass' || it.r.trk === 'concrete';
+            const bedBlk = {};
+            rails.forEach(it => {      // grassy / concrete tram track off the segments: a bed of that material (rails are drawn below)
+                if (!tramStyle(it) || !it.c || it.c.length < 2) return;
+                if (it.r === railDraw) return;      // live preview: skip the costly bed until the rail is placed
+                const ckey = railDraw ? it.r.id + '|' + it.r.trk + '|' + it.c.length + '|' + it.c[0] + '|' + it.c[it.c.length - 1] : null;
+                if (ckey && bedCache.has(ckey)) { const g = bedCache.get(ckey); if (g) L.geoJSON(g, { interactive: false, style: { stroke: false, fillColor: it.r.trk === 'grass' ? EXTRA_PAVE.grass.hex : PAVE.concrete.hex, fillOpacity: 1 } }).addTo(laneGroup); return; }
+                // the bed is cut from the track's WHOLE centre line, not from the pieces left outside the segment: it runs under the road at a fork and is trimmed by the road edge,
+                // so it fills right up to the road at any angle (no square-ended strip leaving a gap) and covers all the grass there, but never the road itself
+                let bed = stripPoly(it.c, -1.6, 1.6); if (!bed) return;
+                const bk = (it.r.lvl || 0) + ':' + it.r.trk; if (!bedBlk[bk]) bedBlk[bk] = railBedBlockers(it.r.lvl || 0, it.r.trk);
+                bed = railBedDiff(bed, bedBlk[bk].concat(it.sideBlk || [])); if (ckey) bedCache.set(ckey, bed || null); if (!bed) return;
+                L.geoJSON(bed, { interactive: false, style: { stroke: false, fillColor: it.r.trk === 'grass' ? EXTRA_PAVE.grass.hex : PAVE.concrete.hex, fillOpacity: 1 } }).addTo(laneGroup);
+            });
+            rails.forEach(it => it.top.forEach(pc => { if (pc.length > 1) drawTramRails(pc, mpp); }));
+            rails.forEach(it => it.out.forEach(pc => { if (pc.length > 1 && !tramStyle(it)) L.polyline(ll(pc), { color: '#6b7280', weight: px(3.4), opacity: 0.92, lineCap: 'butt', lineJoin: 'round', interactive: false }).addTo(laneGroup); }));
+            rails.forEach(it => it.out.forEach(pc => { if (pc.length > 1 && !tramStyle(it)) L.polyline(ll(pc), { color: '#4a392c', weight: px(2.6), opacity: fine ? 0.95 : 0.55, lineCap: 'butt', lineJoin: 'round', interactive: false, dashArray: fine ? (0.26 / mpp) + ',' + (0.44 / mpp) : null }).addTo(laneGroup); }));
+            rails.forEach(it => { if (tramStyle(it)) return; try { drawRailCrossings(it, mpp); } catch (e) { console.error(e); } });
             rails.forEach(it => it.inn.forEach(pc => drawTram(pc, mpp)));
             rails.forEach(it => it.out.forEach(pc => [0.7175, -0.7175].forEach(o => {
                 const rc = getOffsetCoordinatesRaw(pc, o); if (rc.length < 2) return;
@@ -4855,9 +5181,20 @@
             })));
             const canHit = !railToolOn && !isDrawing && !document.body.classList.contains('sel-tool');
             allRails.forEach(r => {
-                const c = r.points.length >= 2 ? railCoords(r.points) : []; if (c.length < 2) return;
+                const c = r.points.length >= 2 ? (cmap.get(r) || railCoords(r.points, r.kind)) : []; if (c.length < 2) return;
                 if (r.isSelected) {
                     L.polyline(ll(c), { color: '#3b82f6', weight: 2, className: 'marching-ants', interactive: false }).addTo(laneGroup);
+                    if ((r.kind === 'walk' || r.kind === 'bike') && r.points.length > 1) for (let i = 0; i < r.points.length - 1; i++) {      // spline handles of every curve
+                        const h = segHandles(r.points, i, r.kind);
+                        if (r.kind === 'walk' || r.kind === 'bike') { const A = r.points[i], B = r.points[i + 1], mp = bezPt(A, h.p1, h.p2, B, 0.5);      // drag the middle of a line to bend it into a spline
+                            const mm = L.marker(mp, { icon: L.divIcon({ className: 'ix-node', iconSize: [12, 12], iconAnchor: [6, 6], html: '<div style="background:#fff;border:2px solid #3b82f6;border-radius:50%;width:12px;height:12px"></div>' }), interactive: true, zIndexOffset: 1450 }).addTo(laneGroup);
+                            mm.on('mousedown', ev => { L.DomEvent.stopPropagation(ev); railDrag = { r, i, mid: true, init: serializeLanes(allLanes), moved: false }; map.dragging.disable(); }); }
+                        [[i, 'ho', h.p1, r.points[i]], [i + 1, 'hi', h.p2, r.points[i + 1]]].forEach(([ni, which, hp, nd]) => {
+                            L.polyline([nd, hp], { color: '#f59e0b', weight: 1, dashArray: '3,3', interactive: false }).addTo(laneGroup);
+                            const hm = L.marker(hp, { icon: L.divIcon({ className: 'ix-node', iconSize: [12, 12], iconAnchor: [6, 6], html: '<div style="background:#f59e0b;border:1px solid #fff;border-radius:50%;width:12px;height:12px"></div>' }), interactive: true, zIndexOffset: 1400 }).addTo(laneGroup);
+                            hm.on('mousedown', ev => { L.DomEvent.stopPropagation(ev); railDrag = { r, i: ni, hand: which, init: serializeLanes(allLanes), moved: false }; map.dragging.disable(); });
+                        });
+                    }
                     r.points.forEach((pt, i) => {
                         const m = L.marker(pt, { icon: L.divIcon({ className: 'vertex-square selected', iconSize: [10, 10], iconAnchor: [5, 5] }), interactive: true, zIndexOffset: 1500 }).addTo(laneGroup);
                         m.on('mousedown', ev => { L.DomEvent.stopPropagation(ev); railDrag = { r, i, init: serializeLanes(allLanes), moved: false }; map.dragging.disable(); });
@@ -4869,10 +5206,11 @@
                 hit.on('click', ev => {
                     L.DomEvent.stopPropagation(ev);
                     if (ev.originalEvent && ev.originalEvent.shiftKey) r.isSelected = !r.isSelected;
-                    else if (r.isSelected) { railInsertAt(r, ev.latlng); return; }
+                    else if (r.isSelected) return;      // double-click adds a node
                     else { deselectAllLanes(); r.isSelected = true; }
                     updateLaneGraphics();
                 });
+                hit.on('dblclick', ev => { L.DomEvent.stop(ev); if (r.isSelected) railInsertAt(r, ev.latlng); });
                 hit.on('contextmenu', ev => { lastRightRail = r; lastRightRailNode = null; lastRightClickLatLon = ev.latlng; });
             });
         }
@@ -4883,6 +5221,19 @@
             $('btn-toggle-rail').classList.toggle('active', railToolKind === 'rail'); $('btn-toggle-bike').classList.toggle('active', railToolKind === 'bike'); $('btn-toggle-walk').classList.toggle('active', railToolKind === 'walk');
             map.getContainer().style.cursor = 'crosshair';
             updateLaneGraphics();
+            if (railToolKind === 'rail') railFirstHint();
+        }
+        let railHintShown = false;
+        function railFirstHint() {      // once, the first time the rail tool is used
+            if (railHintShown) return; railHintShown = true;
+            try { if (localStorage.getItem('laneToolRailHint') === '1') return; localStorage.setItem('laneToolRailHint', '1'); } catch (e) { /* once per session then */ }
+            const ov = document.createElement('div');
+            ov.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:6000;pointer-events:none';
+            ov.innerHTML = '<div style="pointer-events:auto;background:#111827;color:#f3f4f6;border:1px solid #4b5563;border-radius:8px;padding:10px 14px;max-width:250px;text-align:center;font:14px/1.45 system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.5)"><div style="font-weight:600;margin-bottom:6px">Right click to convert to tram tracks</div><div style="font-size:12px;color:#9ca3af;margin-bottom:12px">Close the rail tool, then right-click a rail and choose Grassy or Concrete Tram Track.</div><button style="background:#16a34a;color:#fff;border:0;border-radius:5px;padding:6px 20px;cursor:pointer;font:inherit">OK</button></div>';
+            const onKey = e => { if (e.key === 'Enter') { e.stopPropagation(); e.preventDefault(); close(); } };
+            const close = () => { if (ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener('keydown', onKey, true); };
+            ov.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') close(); });
+            document.addEventListener('keydown', onKey, true); document.body.appendChild(ov);
         }
         function closeRailTool() {
             if (!railToolOn && !railDraw) return;
@@ -4919,10 +5270,24 @@
         function railFinish() {
             if (railDraw && railDraw.points.length >= 2) {
                 saveHistoryState();
-                const r = { id: railDraw.id, points: railDraw.points, isSelected: false, kind: railDraw.kind, two: railDraw.two, w: railDraw.w, lvl: railDraw.lvl };
-                railJunctions(r); allRails.push(r);
+                if (railDraw.extendOf && allRails.includes(railDraw.extendOf)) {      // an extension: the new points join the rail it grew from
+                    const r0 = railDraw.extendOf, np = railDraw.points.slice(1);
+                    r0.points = railDraw.atStart ? np.reverse().concat(r0.points) : r0.points.concat(np);
+                    railJunctions(r0);
+                } else {
+                    const r = { id: railDraw.id, points: railDraw.points, isSelected: false, kind: railDraw.kind, two: railDraw.two, w: railDraw.w, lvl: railDraw.lvl };
+                    railJunctions(r); allRails.push(r);
+                }
             }
             railDraw = null; railMouse = null; updateLaneGraphics(); updateUndoRedoUI();
+        }
+        // extend a rail from one of its ends (the arrow that appears beside an end node)
+        function railExtend(r, atStart) {
+            if (!allRails.includes(r)) return;
+            if (!(railToolOn && railToolKind === 'rail')) openRailTool('rail');
+            const e = atStart ? r.points[0] : r.points[r.points.length - 1];
+            railDraw = { id: Date.now() + Math.random(), points: [L.latLng(e.lat, e.lng)], kind: 'rail', lvl: r.lvl || curLevel, extendOf: r, atStart: !!atStart };
+            railMouse = null; updateLaneGraphics(); updateUndoRedoUI();
         }
         function railRightClick() {
             if (railDraw && railDraw.points.length >= 2) railFinish();
@@ -4940,9 +5305,22 @@
         });
         map.on('mousemove', e => {
             if (railDrag) {
-                railDrag.r.points[railDrag.i] = railSnap(e.latlng, railDrag.r, railDrag.r.kind); railDrag.moved = true; updateLaneGraphics(); return;
+                if (railDrag.mid) {
+                    const A = railDrag.r.points[railDrag.i], B = railDrag.r.points[railDrag.i + 1], cl = (A.lat + B.lat) / 2, cn = (A.lng + B.lng) / 2, vl = 4 / 3 * (e.latlng.lat - cl), vn = 4 / 3 * (e.latlng.lng - cn);
+                    A.ho = [A.lat + (B.lat - A.lat) / 3 + vl, A.lng + (B.lng - A.lng) / 3 + vn]; B.hi = [B.lat - (B.lat - A.lat) / 3 + vl, B.lng - (B.lng - A.lng) / 3 + vn];
+                }
+                else if (railDrag.hand) railSetHandle(railDrag.r, railDrag.i, railDrag.hand, e.latlng);
+                else {
+                    const old = railDrag.r.points[railDrag.i], sn = railSnap(e.latlng, railDrag.r, railDrag.r.kind), np = L.latLng(sn.lat, sn.lng), dl = np.lat - old.lat, dn = np.lng - old.lng;
+                    if (old.ho) np.ho = [old.ho[0] + dl, old.ho[1] + dn]; if (old.hi) np.hi = [old.hi[0] + dl, old.hi[1] + dn];
+                    railDrag.r.points[railDrag.i] = np;
+                }
+                railDrag.moved = true; updateLaneGraphics(); return;
             }
-            if (railToolOn && railDraw) { railMouse = railSnap(e.latlng, railDraw, railToolKind); updateLaneGraphics(); }
+            if (railToolOn && railDraw) {      // many moves per frame collapse into one redraw (the whole scene is redrawn each time)
+                railPendingLL = e.latlng;
+                if (!railRaf) railRaf = requestAnimationFrame(() => { railRaf = 0; if (!(railToolOn && railDraw) || !railPendingLL) return; railMouse = railSnap(railPendingLL, railDraw, railToolKind); updateLaneGraphics(); });
+            }
         });
         map.on('mouseup', () => {
             if (!railDrag) return;
@@ -4957,11 +5335,19 @@
             $('ctx-rail-delnode').classList.toggle('hidden', !node || lastRightRail.points.length <= 2);
             $('ctx-rail-del').dataset.name = lastRightRail.kind === 'bike' ? 'Bike Path' : lastRightRail.kind === 'walk' ? 'Sidewalk' : 'Rail';
             $('ctx-rail-del').classList.remove('hidden');
+            { const isRail = (lastRightRail.kind || 'rail') === 'rail', tk = lastRightRail.trk || 'ballast';
+              $('ctx-rail-trk-grass').classList.toggle('hidden', !isRail || node || tk === 'grass');
+              $('ctx-rail-trk-concrete').classList.toggle('hidden', !isRail || node || tk === 'concrete');
+              $('ctx-rail-trk-ballast').classList.toggle('hidden', !isRail || node || tk === 'ballast'); }
             ['ctx-feat-del', 'ctx-delnode', 'ctx-delseg', 'ctx-del-side', 'ctx-tram-off'].forEach(id => $(id).classList.add('hidden'));
             if (window.ctxRefreshWraps) window.ctxRefreshWraps();
             contextMenu.querySelectorAll(':scope > .ctx-wrap').forEach(w => { if (w.id !== 'ctx-del-wrap') w.classList.add('hidden'); });
             $('ctx-paint-rail').classList.toggle('hidden', lastRightRail.kind !== 'bike'); $('ctx-paint-rail').textContent = 'Pavement Material: Bike Path (' + PAVE[curPave].n + ')';
         });
+        ['grass', 'concrete', 'ballast'].forEach(k => { $('ctx-rail-trk-' + k).onclick = () => {
+            contextMenu.style.display = 'none'; const r = lastRightRail; if (!r) return;
+            saveHistoryState(); r.trk = k === 'ballast' ? undefined : k; updateLaneGraphics(); updateUndoRedoUI();
+        }; });
         const startAtRight = kind => { contextMenu.style.display = 'none'; const ll = lastRightClickLatLon; openRailTool(kind); if (ll) { railDraw = newRailDraw(railSnap(ll, null, kind)); updateLaneGraphics(); updateUndoRedoUI(); } };
         $('ctx-rail').onclick = () => startAtRight('rail');
         $('ctx-bike').onclick = () => startAtRight('bike');
@@ -5450,7 +5836,6 @@
             window.updateSearchHint = () => { inp.placeholder = bmGroup === 'ogf' ? 'Search OpenGeofiction or coordinates...' : 'Search places or coordinates...'; };
             window.updateSearchHint();
         })();
-        $('keybind-list').insertAdjacentHTML('beforeend', '<div><b>Box / Lasso</b> &mdash; select lanes (Shift adds)</div><div><b>Search bar</b> &mdash; place names, or coordinates such as 39.0076, -94.6935</div>');
         (function intro() {
             const box = $('intro-box'); let seen = false;
             try { seen = !!localStorage.getItem('laneToolIntroSeen'); } catch (e) { /* storage blocked */ }
@@ -5616,7 +6001,12 @@
     }
     function ensureCrossStops(lane, ft) {
         lane.feats = (lane.feats || []).filter(q => !(q.auto && q.cid === ft.id));
-        if (ft.v === 'raised') return;
+        ft.hmp = false;
+        if (ft.v === 'raised') {      // one speed hump arrow per vehicle lane, just before the crosswalk (delete any of them like other markings)
+            const nn = lane.totalLaneCount || 1; ensureModel(lane, nn);
+            for (let j = 0; j < nn; j++) { const t = lane.types && lane.types[j]; if (isBikeT(t) || isMedT(t)) continue; lane.feats.push({ t: 'hump', k: j, f: ft.f, auto: true, cid: ft.id }); }
+            ft.hmp = true; return;
+        }
         const n = lane.totalLaneCount || 1; ensureModel(lane, n);
         [1, -1].forEach(d => {
             const ks = []; for (let j = 0; j < n; j++) { const t = lane.types && lane.types[j]; if (lane.dirs[j] === d && !isBikeT(t) && !isMedT(t)) ks.push(j); }
@@ -5626,6 +6016,7 @@
             lane.feats.push({ t: 'stop', k: ks[0], k0, k1, f: ft.f, auto: true, cid: ft.id, dd: d });
         });
     }
+    window.ensureCrossStops = ensureCrossStops;
     // right-click > Change Crosswalk
     ['cont', 'ladder', 'raised'].forEach(v => document.getElementById('ctx-cc-' + v).addEventListener('click', () => {
         contextMenu.style.display = 'none'; const nf = lastNearFeat; if (!nf || nf.ft.t !== 'cross') return;
@@ -5667,7 +6058,7 @@
                     const f = len ? turf.nearestPointOnLine(ln, mid).properties.location / len : 0.5;
                     lane.feats = lane.feats || []; const ft = lane.feats.find(q => q.wk === key);
                     if (!ft) { const nf = { t: 'cross', v: 'cont', k: -1, f, id: 'x' + Math.random().toString(36).slice(2, 8), wk: key, m: skewM(pc, f, ln, len), am: true }; lane.feats.push(nf); if (!ixAt(mid.geometry.coordinates, lane)) ensureCrossStops(lane, nf); }
-                    else { ft.f = f; if (ft.am !== false && ft.v !== 'raised') ft.m = skewM(pc, f, ln, len); if (ixAt(mid.geometry.coordinates, lane)) lane.feats = lane.feats.filter(q => !(q.auto && q.cid === ft.id)); }
+                    else { ft.f = f; if (ft.am !== false && ft.v !== 'raised') ft.m = skewM(pc, f, ln, len); if (ixAt(mid.geometry.coordinates, lane)) lane.feats = lane.feats.filter(q => !(q.auto && q.cid === ft.id && q.t === 'stop')); }
                     agree.push({ ft: lane.feats.find(q => q.wk === key), f, ln, len, mid: mid.geometry.coordinates, pc });
                 });
             });
@@ -5858,7 +6249,52 @@ function fitHandles(co){
  let k=d/3;if(phi>0.05){const R=d/(2*Math.sin(phi/2));k=Math.min(d*0.9,4/3*Math.tan(phi/4)*R);}
  return{c1:llOf([tA[0]*k,tA[1]*k],rf).reverse(),c2:llOf([B[0]-tB[0]*k,B[1]-tB[1]*k],rf).reverse()};
 }
+// a path with waypoints: a chain of cubic curves through the start, every via node and the end.
+// c.c1 = the start's out-handle, c.c2 = the end's in-handle, c.vh[i] = {ho,hi} the handles of via node i (all [lat,lng]); a missing handle gets a smooth default
+function viaNodes(c){
+ const vh=c.vh||[];
+ return [{lat:c.a.lat,lng:c.a.lng,ho:c.c1||null}].concat((c.via||[]).map((v,i)=>({lat:v[0],lng:v[1],ho:(vh[i]&&vh[i].ho)||null,hi:(vh[i]&&vh[i].hi)||null})),[{lat:c.b.lat,lng:c.b.lng,hi:c.c2||null}]);
+}
+function viaCurve(c){
+ const pts=viaNodes(c),seg=[];
+ for(let i=0;i<pts.length-1;i++)seg.push(segHandles(pts,i,'walk'));
+ return{coords:bezRailCoords(pts,'walk'),c1:seg[0].p1,c2:seg[seg.length-1].p2,nodes:pts,seg};
+}
+// remove a waypoint (an emptied path goes back to its automatic curve)
+function removeVia(c,vi){
+ c.via.splice(vi,1);if(c.vh)c.vh.splice(vi,1);
+ if(!c.via.length){c.via=null;c.vh=null;if(c.corner||c.bcorner||(c.kind==='walk'&&c.cross))c.c1=c.c2=null;if(c.kind==='walk'&&c.cross)c.straight=true;}
+}
+// double-click on a path: a new node exactly where it was clicked, the curve keeps its shape
+function insertNode(c,ll){
+ const cp=map.latLngToContainerPoint(ll);
+ if(c.via&&c.via.length){      // already a chain: split the cubic that was clicked (de Casteljau), every other handle is frozen as it is
+  const g=geom(c),N=g.nodes,S=g.seg;let bs=-1,bt=0,bd=1e9;
+  for(let i=0;i<N.length-1;i++)for(let k=1;k<40;k++){const t=k/40,q=bezPt(N[i],S[i].p1,S[i].p2,N[i+1],t),d=cp.distanceTo(map.latLngToContainerPoint(L.latLng(q[0],q[1])));if(d<bd){bd=d;bs=i;bt=t;}}
+  if(bs<0)return false;
+  const A=N[bs],B=N[bs+1],h=S[bs],t=bt,lp=(a,b)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+  const P0=[A.lat,A.lng],P3=[B.lat,B.lng],Q0=lp(P0,h.p1),Q1=lp(h.p1,h.p2),Q2=lp(h.p2,P3),R0=lp(Q0,Q1),R1=lp(Q1,Q2),Sx=lp(R0,R1);
+  const vh=c.via.map((v,i)=>({ho:S[i+1].p1.slice(),hi:S[i].p2.slice()}));
+  c.c1=S[0].p1.slice();c.c2=S[S.length-1].p2.slice();
+  if(bs===0)c.c1=Q0;else vh[bs-1].ho=Q0;
+  if(bs+1===N.length-1)c.c2=Q2;else vh[bs].hi=Q2;
+  c.via.splice(bs,0,Sx);vh.splice(bs,0,{ho:R1,hi:R0});c.vh=vh;return true;
+ }
+ // first node on a path: split the curve you see at that point and fit one cubic to each half
+ const co=geom(c).coords;if(!co||co.length<2)return false;
+ const rf=co[0],P=xyOf([ll.lng,ll.lat],rf),XY=co.map(q=>xyOf(q,rf));let bi=-1,bf=0,bdd=1e9;
+ for(let i=0;i<XY.length-1;i++){const a=XY[i],b=XY[i+1],dx=b[0]-a[0],dy=b[1]-a[1],l2=dx*dx+dy*dy||1e-9,f=Math.max(0,Math.min(1,((P[0]-a[0])*dx+(P[1]-a[1])*dy)/l2)),d=Math.hypot(P[0]-a[0]-dx*f,P[1]-a[1]-dy*f);if(d<bdd){bdd=d;bi=i;bf=f;}}
+ if(bi<0)return false;
+ const a=XY[bi],b=XY[bi+1],qx=[a[0]+(b[0]-a[0])*bf,a[1]+(b[1]-a[1])*bf],q=llOf(qx,rf),near=(u,v)=>Math.hypot(u[0]-v[0],u[1]-v[1])<0.3;
+ const before=XY.slice(0,bi+1),after=XY.slice(bi+1);
+ if(!near(before[before.length-1],qx))before.push(qx);else if(before.length>1)before[before.length-1]=qx;
+ if(!near(after[0],qx))after.unshift(qx);else after[0]=qx;
+ if(before.length<2||after.length<2||near(before[0],qx)||near(after[after.length-1],qx))return false;      // too close to an end
+ const toLL=arr=>arr.map(z=>llOf(z,rf)),h1=fitHandles(toLL(before)),h2=fitHandles(toLL(after));
+ c.via=[[q[1],q[0]]];c.c1=h1.c1;c.c2=h2.c2;c.vh=[{ho:h2.c1,hi:h1.c2}];return true;
+}
 function geom(c){
+ if(c.via&&c.via.length)return viaCurve(c);
  if(c.straight){const a=c.a,b=c.b,rf=[a.lng,a.lat],B=xyOf([b.lng,b.lat],rf),toLL=q=>llOf(q,rf);
   return{coords:[[a.lng,a.lat],[b.lng,b.lat]],c1:toLL([B[0]/3,B[1]/3]).reverse(),c2:toLL([B[0]*2/3,B[1]*2/3]).reverse()};}
  if(c.bcorner&&c.ca&&c.cb&&c.sa&&c.sb&&!c.c1&&!c.c2){      // a bike path joining two sidewalk bike strips: follows the curb return at the strips' own offset
@@ -5954,7 +6390,7 @@ function minusZ(poly,Z){
  try{const bb=turf.bbox(poly);for(const z of Z){if(!p)break;const zb=z._bb||(z._bb=turf.bbox(z));if(zb[0]>bb[2]||zb[2]<bb[0]||zb[1]>bb[3]||zb[3]<bb[1])continue;p=turf.difference(p,z);}}catch(e){return poly;}
  return p;
 }
-function shrinkZ(Z){const out=[];Z.forEach(z=>{try{const q=turf.buffer(z,-0.12,{units:'meters',steps:2});if(q)out.push(q);}catch(e){}});return out;}
+function shrinkZ(Z,d){d=d||0.12;const out=[];Z.forEach(z=>{try{const q=turf.buffer(z,-d,{units:'meters',steps:2});if(q)out.push(q);}catch(e){}});return out;}
 function sameEnds(x,c){return(x.ea===c.ea&&x.eb===c.eb)||(x.ea===c.eb&&x.eb===c.ea);}
 
 // ---- what a connection paints ----
@@ -5991,16 +6427,31 @@ function barsOn(pc,cw,P,v,lvl){
    let band=stripPoly(pc,-3.048,3.048);      // red raised table, 20 ft deep
    if(band){try{if(P.road)band=turf.intersect(band,P.road)||null;const Z=(P.isl||[]).concat(P.cz||[]).concat(P.gbuf||[]);if(band&&Z.length)band=minusZ(band,Z);}catch(e){}      // red only over road pavement: never grass, islands or sidewalk
     if(band)P.paint.push({poly:band,c:'red',merge:false,lvl:lvl||0});}
-   // ramp markings: a chevron and a triangle on the approach side of the table for every lane path that crosses it, pointing the way that lane travels
-   const seen={};
+   // ramp markings: one chevron + yield triangle per lane that crosses the table, always square to the crosswalk (exactly perpendicular), pointing the way that lane travels.
+   // lanes whose markings would overlap (same travel direction, closer than a marking's width) are consolidated into a single one in the middle.
+   // each marking has a key, so it can be deleted afterwards like other intersection markings (right-click, or the Stop / yield step's handles)
+   const rf=pc[0],A=pc.map(q=>xyOf(q,rf)),cumA=[0];for(let i=1;i<A.length;i++)cumA.push(cumA[i-1]+Math.hypot(A[i][0]-A[i-1][0],A[i][1]-A[i-1][1]));
+   const hits=[],seen={},SD=(P.S&&P.S.stopDel)||{};
    (P.conns||[]).forEach(cn=>{
     if(cn.kind!=='road'||!cn.ka||seen[cn.ka])return;let g;try{g=geom(cn).coords;}catch(e){return;}if(!g||g.length<2)return;
-    const rf=pc[0],A=pc.map(q=>xyOf(q,rf)),G=g.map(q=>xyOf(q,rf));let X=null;
-    for(let i=0;i<G.length-1&&!X;i++)for(let j=0;j<A.length-1;j++){const r=segInt(G[i],G[i+1],A[j],A[j+1]);
-     if(r&&r.cos<0.95){const dx=G[i+1][0]-G[i][0],dy=G[i+1][1]-G[i][1],l=Math.hypot(dx,dy)||1;X={p:[G[i][0]+dx*r.u,G[i][1]+dy*r.u],d:[dx/l,dy/l]};break;}}
-    if(!X)return;seen[cn.ka]=1;
-    const d=X.d,nr=[-d[1],d[0]],arm=Math.min(0.9,(cn.wa||cn.w||3)*0.3),th=0.32,gap=0.25*Math.SQRT2,B0=1.8,
-     pt=(u,v)=>llOf([X.p[0]+nr[0]*u+d[0]*v,X.p[1]+nr[1]*u+d[1]*v],rf);      // u = across the lane, v = along travel (apex toward the crosswalk)
+    let G=g.map(q=>xyOf(q,rf));let X=null;
+    try{const bk=laneBack(cn.ka,rf,G[0],30);if(bk&&bk.xy.length>1)G=bk.xy.slice(1).reverse().concat(G);}catch(e){}      // the lane's own road section too: a crosswalk at the end of a leg lies on it, not on the path inside the intersection
+    for(let i=0;i<G.length-1&&!X;i++)for(let j=0;j<A.length-1;j++){const r=segInt(G[i],G[i+1],A[j],A[j+1],0.03);
+     if(r&&r.cos<0.95){const dx=G[i+1][0]-G[i][0],dy=G[i+1][1]-G[i][1],l=Math.hypot(dx,dy)||1,p=[G[i][0]+dx*r.u,G[i][1]+dy*r.u],ex=A[j+1][0]-A[j][0],ey=A[j+1][1]-A[j][1],el=Math.hypot(ex,ey)||1,tA=[ex/el,ey/el],nv=[-tA[1],tA[0]],sg=(nv[0]*dx+nv[1]*dy)>=0?1:-1;
+      X={ka:cn.ka,w:cn.wa||cn.w||3,s:cumA[j]+((p[0]-A[j][0])*tA[0]+(p[1]-A[j][1])*tA[1]),sg};break;}}
+    if(!X)return;seen[cn.ka]=1;hits.push(X);
+   });
+   const groups=[];
+   [1,-1].forEach(sg=>{const hs=hits.filter(h=>h.sg===sg).sort((p,q)=>p.s-q.s);let cur=null;
+    hs.forEach(h=>{if(cur&&h.s-cur[cur.length-1].s<1.9)cur.push(h);else{cur=[h];groups.push(cur);}});});
+   groups.forEach(grp=>{
+    const sm=grp.reduce((t,h)=>t+h.s,0)/grp.length,sg=grp[0].sg,w=grp.reduce((t,h)=>t+h.w,0)/grp.length,key='rp:'+c.id+':'+grp.map(h=>h.ka).sort().join('+');
+    let j=0;while(j<A.length-2&&cumA[j+1]<sm)j++;
+    const ex=A[j+1][0]-A[j][0],ey=A[j+1][1]-A[j][1],el=Math.hypot(ex,ey)||1,tA=[ex/el,ey/el],f=sm-cumA[j],C=[A[j][0]+tA[0]*f,A[j][1]+tA[1]*f];
+    const d=[-tA[1]*sg,tA[0]*sg],nr=[-d[1],d[0]],arm=Math.min(0.9,w*0.3),th=0.32,gap=0.25*Math.SQRT2,B0=1.8,
+     pt=(u,v)=>llOf([C[0]+nr[0]*u+d[0]*v,C[1]+nr[1]*u+d[1]*v],rf);      // u = across the lane (along the crosswalk), v = toward the crosswalk (apex)
+    const cll=pt(0,-B0-th-arm/2);(P.ramps=P.ramps||[]).push({key,ll:[cll[1],cll[0]],del:!!SD[key]});
+    if(SD[key])return;
     P.bars.push([pt(0,-B0),pt(arm,-B0-arm),pt(arm,-B0-arm-th),pt(0,-B0-th),pt(-arm,-B0-arm-th),pt(-arm,-B0-arm)]);
     const ty=B0+th+gap,hh=Math.max(0.2,arm-gap);P.bars.push([pt(0,-ty),pt(hh,-ty-hh),pt(-hh,-ty-hh)]);
    });
@@ -6023,7 +6474,16 @@ function cornerParts(c,P,lvl){
   const pg=ringPoly(ov(A[2],B[2]),ov(A[3],B[3]));
   if(pg){P.paint.push({poly:pg,c:(sa.wk>0?sa.pave:sb.pave)||'concrete',merge:true,lvl});P.cz.push(pg);}
  }
- P.curbs.push(g);      // curb: tied to the road's lane edges (straight along them, round the radius); bike paths cut it out in partsOf
+ // a bike strip that touches the road (grass buffer 0) has the white edge line against the road, not a curb: carry that line round the corner too
+ const lnA=sa.bw>0.01&&sa.buf<=0.01,lnB=sb.bw>0.01&&sb.buf<=0.01,wl=pts=>P.lines.push({pts,color:'#ffffff',w:0.15,dash:null});
+ if(lnA&&lnB)wl(g);
+ else if(lnA||lnB){      // the bike strip on one road touches it (white line there), the other road's side keeps its curb: half and half
+  const rf=g[0],xy=g.map(q=>xyOf(q,rf)),cum=[0];for(let i=1;i<xy.length;i++)cum.push(cum[i-1]+Math.hypot(xy[i][0]-xy[i-1][0],xy[i][1]-xy[i-1][1]));
+  const half=cum[cum.length-1]/2;let k=1;while(k<g.length-1&&cum[k]<half)k++;
+  const f=(half-cum[k-1])/((cum[k]-cum[k-1])||1),m=llOf([xy[k-1][0]+(xy[k][0]-xy[k-1][0])*f,xy[k-1][1]+(xy[k][1]-xy[k-1][1])*f],rf),h1=g.slice(0,k).concat([m]),h2=[m].concat(g.slice(k));
+  if(h1.length>1&&h2.length>1){wl(lnA?h1:h2);P.curbs.push(lnA?h2:h1);}else P.curbs.push(g);
+ }
+ else P.curbs.push(g);      // curb: tied to the road's lane edges (straight along them, round the radius); bike paths cut it out in partsOf
 }
 // a sidewalk / crosswalk path: clean continental crosswalk where it crosses the road, a plain sidewalk everywhere else
 function crossParts(c,P,road,meds,lvl){
@@ -6047,12 +6507,29 @@ function crossParts(c,P,road,meds,lvl){
 }
 // a bike path: plain path with solid edges outside the road, the established green dashed pattern across it.
 // Over an island it is plain pavement (asphalt, red for European paths) with a centre line if two-way and a curb on either side
+function halfLine(e,second){      // the first or the second half (by length) of a [lng,lat] line
+ const rf=e[0],xy=e.map(q=>xyOf(q,rf)),cum=[0];for(let i=1;i<xy.length;i++)cum.push(cum[i-1]+Math.hypot(xy[i][0]-xy[i-1][0],xy[i][1]-xy[i-1][1]));
+ const half=cum[cum.length-1]/2;let k=1;while(k<e.length-1&&cum[k]<half)k++;
+ const f=(half-cum[k-1])/((cum[k]-cum[k-1])||1),m=llOf([xy[k-1][0]+(xy[k][0]-xy[k-1][0])*f,xy[k-1][1]+(xy[k][1]-xy[k-1][1])*f],rf);
+ return second?[m].concat(e.slice(k)):e.slice(0,k).concat([m]);
+}
 function bikeParts(c,P,road,meds,lvl){
  const g=geom(c).coords,w=c.w||1.5,two=!!c.two,sp=splitRoad(g,road,meds);
  // off the road (a corner, a curbed island, a grass / concrete median): plain asphalt (red for European paths), a curb each side, only the centre line when two-way
  const offRoad=x=>{if(x.length<2)return;const pg=stripPoly(x,-w/2,w/2);if(pg)P.bikePaint.push({poly:pg,c:euroBike?'red':'asphalt',lvl});
-  if(two)P.lines.push({pts:x,color:useYellow?'#facc15':'#ffffff',w:0.15,dash:[3,6]});
-  [w/2,-w/2].forEach(o=>{const e=getOffsetCoordinatesRaw(x,o);if(e.length>1)(P.offB=P.offB||[]).push({c,e});});};
+  if(two)P.lines.push({pts:x,color:useYellow?'#facc15':'#ffffff',w:0.15,dash:[3,6],own:c});
+  // a bike path round a corner whose bike strips touch the road (grass buffer 0): its road-side edge is the white line cornerParts draws, so it gets no curb
+  let skipIn=-1,partial=false;
+  if(c.bcorner&&c.sa&&c.sb&&(c.sa.buf<=0.01||c.sb.buf<=0.01)){partial=!(c.sa.buf<=0.01&&c.sb.buf<=0.01);try{
+   const cw=(P.conns||[]).find(q=>q.kind==='walk'&&q.corner&&q.ca&&q.cb&&sameEnds(q,c));
+   if(cw){const ref=turf.lineString(geom(cw).coords),es=[w/2,-w/2].map(o=>getOffsetCoordinatesRaw(x,o));
+    const dd=es.map(e=>{if(e.length<2)return 1e9;const m=e[Math.floor(e.length/2)];return turf.pointToLineDistance(turf.point(m),ref,{units:'meters'});});
+    skipIn=dd[0]<=dd[1]?0:1;}
+  }catch(er){skipIn=-1;}}
+  // the road-side edge: no curb where the white line runs (the whole way, or only along the half that belongs to the road whose bike strip touches the road)
+  [w/2,-w/2].forEach((o,oi)=>{const e=getOffsetCoordinatesRaw(x,o);if(e.length<2)return;
+   if(oi===skipIn){if(!partial)return;const hs=halfLine(e,c.sa.buf<=0.01);if(hs.length>1)(P.offB=P.offB||[]).push({c,e:hs});return;}
+   (P.offB=P.offB||[]).push({c,e});});};
  sp.out.forEach(pc=>{if(pc.length<2)return;offRoad(pc);});
  // across the road: the established dashed pattern; a PAINTED island is still road, so it keeps those markings and gets no curbs
  sp.road.forEach(pc=>{if(pc.length<2)return;
@@ -6073,9 +6550,9 @@ function islHatch(ring,pg,P){
  }
  try{keep([ring]).forEach(x=>{if(x.length>1)P.lines.push({pts:x,color:col,w:0.15,dash:null});});}catch(e){}
 }
-function partsOf(conns,road,meds,lvl,fill,islands){
+function partsOf(conns,road,meds,lvl,fill,islands,S){
  const P={paint:[],bikePaint:[],bars:[],curbs:[],lines:[],bikeIn:[],bikeOut:[],cutCurb:[],isl:[],islCurbs:[],mkPend:[],cz:[],gz:[],cwCut:[],cwBand:[]};
- P.road=road;P.bz=[];try{P.bz=bikeZones(lvl,conns,fill);}catch(e){console.error(e);}
+ P.road=road;P.S=S||{};P.bz=[];try{P.bz=bikeZones(lvl,conns,fill);}catch(e){console.error(e);}
  const isls=(islands||[]).filter(is=>is&&is.ring&&is.ring.length>3);
  P.isl=[];isls.forEach(is=>{try{P.isl.push(turf.polygon([is.ring]));}catch(e){P.isl.push(null);}});
  const ipl=P.isl.filter((pg,i)=>pg&&(isls[i].kind||'concrete')!=='paint'&&(isls[i].kind||'concrete')!=='asphalt');P.isl=P.isl.slice();P.conns=conns;P.lvl=lvl;P.grassZ=[];      // (keep index alignment for the loop below)
@@ -6104,6 +6581,23 @@ function partsOf(conns,road,meds,lvl,fill,islands){
     try{const bf=turf.buffer(pg,0.2,{units:'meters',steps:2});if(bf)P.grassZ.push(bf);}catch(e){}
    }
    else{P.paint.push({poly:pg,c:'concrete',lvl,isl:true});P.curbs.push(is.ring);}}catch(e){console.error(e);}});
+ // sidewalk, corner and crosswalk pavement never lies over a roadway (medians and curbed islands are refuge, so they may carry it; the red raised table is road)
+ try{
+  if(road){
+   let R=road;const keep=(meds||[]).concat(P.isl||[]);
+   if(keep.length)R=minusZ(R,keep);
+   if(R){
+    const rb=turf.bbox(R),np=[];
+    P.paint.forEach(p=>{
+     if(!p||!p.poly||p.isl||p.c==='red'){np.push(p);return;}
+     const b=turf.bbox(p.poly);if(b[0]>rb[2]||b[2]<rb[0]||b[1]>rb[3]||b[3]<rb[1]){np.push(p);return;}
+     let q=p.poly;try{q=turf.difference(p.poly,R);}catch(e){q=p.poly;}
+     if(q)np.push(Object.assign({},p,{poly:q}));
+    });
+    P.paint=np;
+   }
+  }
+ }catch(e){console.error(e);}
  // edge markings stop at concrete (sidewalk, crosswalk walk, island) and start again after it
  try{const conc=P.paint.filter(p=>p.c==='concrete').map(p=>p.poly);(P.islAll||[]).forEach(pg=>{try{const bf=turf.buffer(pg,0.6,{units:'meters',steps:2});if(bf)conc.push(bf);}catch(e){}});
   P.mkPend.forEach(l=>{const pcs=conc.length?cut([l.pts],conc).out:[l.pts];pcs.forEach(pc=>{if(pc.length>1)P.lines.push({pts:pc,color:l.color,w:l.w,dash:l.dash});});});}catch(e){console.error(e);}
@@ -6111,7 +6605,7 @@ function partsOf(conns,road,meds,lvl,fill,islands){
  if(P.bz.length){
   const np=[];P.paint.forEach(p=>{const q=minusZ(p.poly,P.bz);if(q)np.push(Object.assign({},p,{poly:q}));});P.paint=np;
  }
- try{const Zc=shrinkZ(P.bz).concat(P.cutCurb).concat(P.grassZ||[]);
+ try{const Zc=shrinkZ(P.bz,0.03).concat(P.cutCurb).concat(P.grassZ||[]);
   conns.forEach(c=>{if(c.kind!=='tram')return;const sp=stripPoly(geom(c).coords,-1.6,1.6);if(sp)Zc.push(sp);});      // rails run through curbs
   if(Zc.length){const nc=[];P.curbs.forEach(g=>{cut([g],Zc).out.forEach(x=>{if(x.length>1)nc.push(x);});});P.curbs=nc;}}catch(e){console.error(e);}
  // off-street bike path curbs dissolve wherever they run inside another bike path (or a bike strip): the paths merge into one surface
@@ -6119,6 +6613,25 @@ function partsOf(conns,road,meds,lvl,fill,islands){
   const Zs=[];P.bz.forEach(z=>{if(z._conn===r.c)return;if(z._sh===undefined){try{z._sh=turf.buffer(z,-0.12,{units:'meters',steps:2})||null;}catch(e){z._sh=null;}}if(z._sh)Zs.push(z._sh);});
   const pcs=Zs.length?cut([r.e],Zs).out:[r.e];pcs.forEach(x=>{if(x.length>1)P.islCurbs.push(x);});});}catch(e){console.error(e);}
  P.islCurbs.forEach(e=>P.curbs.push(e));
+ // no curb crosses a travel path (the roadway through the intersection), and no marking line crosses a bike path (a path's own centre line stays)
+ try{const Zt=[];conns.forEach(c=>{if(c.kind!=='road')return;const hw=(c.w||3)/2-0.1;if(hw<=0.2)return;const sp=stripPoly(geom(c).coords,-hw,hw);if(sp)Zt.push(sp);});
+  if(Zt.length){const nc=[];P.curbs.forEach(g=>{cut([g],Zt).out.forEach(x=>{if(x.length>1)nc.push(x);});});P.curbs=nc;}
+  const Zb=[];P.bz.forEach(z=>{try{const q=turf.buffer(z,-0.12,{units:'meters',steps:2});if(q){q._conn=z._conn;Zb.push(q);}}catch(e){}});
+  if(Zb.length){const nl=[];P.lines.forEach(o=>{const zs=Zb.filter(z=>!(o.own&&z._conn===o.own));if(!zs.length){nl.push(o);return;}cut([o.pts],zs).out.forEach(x=>{if(x.length>1)nl.push(Object.assign({},o,{pts:x}));});});P.lines=nl;}}catch(e){console.error(e);}
+ // a painted edge line that runs along grass (between grass and pavement) is a curb, never a line
+ try{const bands=[];grassZones(P).concat(P.grassZ||[]).forEach(z=>{try{const o=turf.buffer(z,0.3,{units:'meters',steps:2}),i=turf.buffer(z,-0.3,{units:'meters',steps:2});let b=o;if(o&&i){try{b=turf.difference(o,i)||o;}catch(e){b=o;}}if(b)bands.push(b);}catch(e){}});
+  if(bands.length){const nl=[],lenM=g=>{let t=0;for(let i=1;i<g.length;i++){const v=xyOf(g[i],g[i-1]);t+=Math.hypot(v[0],v[1]);}return t;};
+   P.lines.forEach(o=>{if(o.own||o.pts.length<2||o.dash){nl.push(o);return;}
+    let rest=[o.pts];const cv=[];
+    bands.forEach(bd=>{const nx=[];rest.forEach(pc=>{try{const q=clipSplit(pc,bd);q.out.forEach(x=>nx.push(x));q.inn.forEach(x=>{if(x.length>1&&lenM(x)>=1)cv.push(x);else if(x.length>1)nx.push(x);});}catch(e){nx.push(pc);}});rest=nx;});
+    rest.forEach(x=>{if(x.length>1)nl.push(Object.assign({},o,{pts:x}));});cv.forEach(x=>P.curbs.push(x));});
+   P.lines=nl;}}catch(e){console.error(e);}
+ // stray scraps: curb fragments left over after the cuts (shorter than ~1.2 m) are dropped so none float in the middle of a bike path or road
+ try{const len=g=>{let t=0;for(let i=1;i<g.length;i++){const v=xyOf(g[i],g[i-1]);t+=Math.hypot(v[0],v[1]);}return t;};
+  let gzb=null;const nearGrass=g=>{if(gzb===null){gzb=[];try{grassZones(P).concat(P.grassZ||[]).forEach(z=>{try{const b=turf.buffer(z,0.45,{units:'meters',steps:2});if(b)gzb.push(b);}catch(e){}});}catch(e){}}
+   if(!gzb.length)return false;const pts=[g[0],g[Math.floor(g.length/2)],g[g.length-1]];
+   return gzb.some(z=>pts.some(q=>{try{return turf.booleanPointInPolygon(turf.point(q),z);}catch(e){return false;}}));};
+  P.curbs=P.curbs.filter(g=>g&&g.length>1&&(len(g)>=2||nearGrass(g)));}catch(e){}
  P.isl=ipl;
  return P;
 }
@@ -6188,6 +6701,8 @@ function drawBar(ring,lg,PP){
 }
 function approach(conns,lg,mpp,S,PP){
  S=S||{};const stops=S.stops||{},stopEnd=S.stopEnd||{},stopDel=S.stopDel||{},stopSplit=S.stopSplit||{},arrowAt=S.arrowAt||{},arrowDel=S.arrowDel||{},stopYield=S.stopYield||{},final=(lg===laneGroup),info=[],lanes={};
+ // raised-crosswalk ramp markings: right-click one to delete it, like any other marking
+ if(final&&PP&&PP.ramps)PP.ramps.forEach(r=>{if(r.del)return;featPos.push({lane:{feats:[]},ft:{t:'ramp',ixs:true},ll:L.latLng(r.ll[0],r.ll[1]),r:2,ixDel:()=>{S.stopDel=S.stopDel||{};S.stopDel[r.key]=true;}});});
  conns.forEach(c=>{if(c.kind!=='road'||!c.a||!c.b)return;
   const o=lanes[c.ka]||(lanes[c.ka]={ka:c.ka,ll:[c.a.lat,c.a.lng],h:c.a.h,w:c.wa||c.w||3.2,end:c.ea||endOf(c.ka),mv:new Set(),paths:[]});
   o.paths.push(geom(c).coords);
@@ -6260,6 +6775,13 @@ function railOver(o,lg,mpp){
 }
 // stop bar step: the blue square slides a whole approach, orange dots move one lane's bar along its own path;
 // click an orange dot to remove / restore that bar, double-click it to split a forking lane's bar in two (or join it back)
+// raised-crosswalk ramp markings in the Stop / yield step: click one to delete it, click the grey ghost to bring it back
+function rampHandles(P){
+ (P.ramps||[]).forEach(r=>{
+  const h=L.marker(r.ll,{zIndexOffset:2500,icon:L.divIcon({className:'ix-node',iconSize:[16,16],iconAnchor:[8,8],html:'<div style="background:'+(r.del?'#6b7280':'#ef4444')+';border-radius:3px;opacity:'+(r.del?.7:1)+'" title="'+(r.del?'Restore':'Delete')+' ramp marking"></div>'})}).addTo(ixLayer);
+  h.on('click',()=>{ck();st.stopDel=st.stopDel||{};if(r.del)delete st.stopDel[r.key];else st.stopDel[r.key]=true;ui();});
+ });
+}
 function stopHandles(info){
  const sq=(bg,r)=>L.divIcon({className:'ix-node',iconSize:[16,16],iconAnchor:[8,8],html:'<div style="background:'+bg+';'+(r?'border-radius:'+r+';':'')+'"></div>'});
  info.forEach(E=>{
@@ -6283,7 +6805,7 @@ function stopHandles(info){
   });
  });
 }
-// ---- edge markings: type / number / thickness / colour, optional start and end points along the edge ----
+// ---- edge markings: type / number / thickness / color, optional start and end points along the edge ----
 const MKTH={thin:.1,normal:.15,thick:.25,xthick:.4},MKCOL={white:'#ffffff',yellow:'#facc15',red:'#dc2626'},MKDASH={broken:[3,9],ext:[1,1]};
 function mkSpecOf(v){
  if(!v)return null;
@@ -6292,7 +6814,7 @@ function mkSpecOf(v){
 }
 function mkPanel(){
  const m=st.mk||{},S=(k,opts)=>'<select data-mk="'+k+'">'+opts.map(([v,t])=>'<option value="'+v+'"'+(String(m[k])===String(v)?' selected':'')+'>'+t+'</option>').join('')+'</select>';
- return 'Type '+S('type',[['solid','Solid'],['broken','Broken'],['ext','Extension']])+' Number '+S('num',[[1,'Single'],[2,'Double']])+' Thickness '+S('th',[['thin','Thin'],['normal','Normal'],['thick','Thick'],['xthick','X-thick']])+' Colour '+S('col',[['white','White'],['yellow','Yellow'],['red','Red']])+' Click an edge to '+S('mode',[['apply','set the marking'],['start','set its start point'],['end','set its end point'],['remove','remove it']]);
+ return 'Type '+S('type',[['solid','Solid'],['broken','Broken'],['ext','Extension']])+' Number '+S('num',[[1,'Single'],[2,'Double']])+' Thickness '+S('th',[['thin','Thin'],['normal','Normal'],['thick','Thick'],['xthick','X-thick']])+' Color '+S('col',[['white','White'],['yellow','Yellow'],['red','Red']])+' Click an edge to '+S('mode',[['apply','set the marking'],['start','set its start point'],['end','set its end point'],['remove','remove it']]);
 }
 function markParts(c,P){
  if(!c.mk)return;const g=geom(c).coords,w=(c.w||3)/2;
@@ -6355,13 +6877,68 @@ window.ixPave=function(){
  allIx.forEach(x=>{
   const f=fillOf(x.conns);if(f)asphaltPolys.push(turf.feature(f.geometry,{c:x.pave||'asphalt'}));
   (x.islands||[]).forEach(is=>{if(!x.conns.length&&(is.kind==='asphalt'||is.kind==='paint')){try{asphaltPolys.push(turf.polygon([is.ring],{c:x.pave||'asphalt'}));}catch(e){}}});
-  try{x._parts=partsOf(x.conns,roadAllFor(x.lvl||0,f),meds,x.lvl||0,f,x.islands);x._parts.paint.forEach(p=>window.ixPaint.push(p));x._parts.bikePaint.forEach(p=>window.ixTopPaint.push(p));}catch(e){x._parts=null;console.error(e);}
+  try{x._parts=partsOf(x.conns,roadAllFor(x.lvl||0,f),meds,x.lvl||0,f,x.islands,x);x._parts.paint.forEach(p=>window.ixPaint.push(p));x._parts.bikePaint.forEach(p=>window.ixTopPaint.push(p));}catch(e){x._parts=null;console.error(e);}
  });
+ // solid red / green paint is real pavement color: it fills continuously under bike paths and crosswalks (those sit on top)
+ try{allIx.forEach(x=>x.conns.forEach(c=>{if(c.kind!=='road'||!c.ka||!c.kb||!c.solid||c.nopaint)return;const ma=laneMat(c.ka),mb=laneMat(c.kb);if(!isRG(ma)||!isRG(mb))return;
+  const hw=(c.w||3)/2,sp=stripPoly(geom(c).coords,-hw,hw);if(sp&&sp.geometry)asphaltPolys.push(turf.feature(sp.geometry,{c:ma}));}));}catch(e){console.error(e);}
+ try{const m0=metersPerPixel();allIx.forEach(x=>matThrough(x,m0));}catch(e){console.error(e);}
 };
 function drawTramConn(c,lg,mpp){
  const px=m=>Math.max(1,m/mpp),g=geom(c).coords,ll=a=>a.map(q=>[q[1],q[0]]);
  const pl=(a,o)=>{if(a.length>1)L.polyline(ll(a),Object.assign({interactive:false,lineCap:'butt',smoothFactor:0},o)).addTo(lg);};
  pl(g,{color:'#9ca3af',weight:px(2.1),opacity:.35});[0.7175,-0.7175].forEach(o=>{const r=getOffsetCoordinatesRaw(g,o);pl(r,{color:'#111827',weight:px(.3),opacity:.85});pl(r,{color:'#d1d5db',weight:px(.14)});});
+}
+// grass is always curbed where it borders asphalt, and no white line ever borders grass (it becomes a curb)
+function grassCurbPass(){
+ const mpp=metersPerPixel(),CB='#b9b4a9',cw=Math.max(1,0.3/mpp);
+ const gs=[],oth=[];
+ (paintPolys||[]).concat(window.ixPaint||[],window.ixTopPaint||[]).forEach(e=>{if(e&&e.poly)(e.c==='grass'?gs:oth).push(e.poly);});
+ try{sideStrips.forEach(q=>{if(q.kind==='buf'&&q.poly)gs.push(q.poly);});}catch(e){}
+ if(!gs.length)return;
+ const rings=[];gs.forEach(pg=>{try{const g=pg.geometry||pg,pp=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];pp.forEach(po=>po.forEach(r=>rings.push({r,own:pg})));}catch(e){}});
+ const inAny=(pt,list)=>{for(const q of list){try{const b=q._bb||(q._bb=turf.bbox(q));if(pt[0]<b[0]||pt[0]>b[2]||pt[1]<b[1]||pt[1]>b[3])continue;if(turf.booleanPointInPolygon(pt,q))return true;}catch(e){}}return false;};
+ const asp=asphaltPolys.slice();
+ const sample=(coords,step)=>{const out=[coords[0]];for(let i=1;i<coords.length;i++){const a=coords[i-1],b=coords[i],v=xyOf(b,a),L_=Math.hypot(v[0],v[1]),n=Math.max(1,Math.ceil(L_/step));for(let k=1;k<=n;k++)out.push([a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n]);}return out;};
+ const draw=(run,col,wt,da)=>{if(col===CB&&run.length>1){let t=0;for(let i=1;i<run.length;i++){const v=xyOf(run[i],run[i-1]);t+=Math.hypot(v[0],v[1]);}if(t<2)return;}if(run.length>1)L.polyline(run.map(q=>[q[1],q[0]]),{color:col,weight:wt,interactive:false,lineCap:'butt',smoothFactor:0,dashArray:da||null}).addTo(laneGroup);};
+ // 1. curb every stretch of a grass outline whose far side is asphalt (and not a path, walk or other grass)
+ rings.forEach(({r,own})=>{
+  const pts=sample(r,1.0);let run=[];
+  for(let i=0;i<pts.length-1;i++){
+   const a=pts[i],b=pts[i+1],m=[(a[0]+b[0])/2,(a[1]+b[1])/2],v=xyOf(b,a),l=Math.hypot(v[0],v[1])||1,nx=-v[1]/l,ny=v[0]/l;
+   const q1=llOf([nx*0.3,ny*0.3],m),q2=llOf([-nx*0.3,-ny*0.3],m);let o=null;
+   try{o=turf.booleanPointInPolygon(q1,own)?q2:q1;}catch(e){o=null;}
+   const ok=o&&!inAny(o,gs)&&inAny(o,asp)&&!inAny(o,oth);
+   if(ok){if(!run.length)run.push(a);run.push(b);}else{draw(run,CB,cw);run=[];}
+  }
+  draw(run,CB,cw);
+ });
+ // 2. white painted lines that run along a grass edge become curb
+ const near=pt=>{for(const g of rings){const r=g.r;for(let i=0;i<r.length-1;i++){const a=r[i],b=r[i+1];if(pt[0]<Math.min(a[0],b[0])-5e-6||pt[0]>Math.max(a[0],b[0])+5e-6||pt[1]<Math.min(a[1],b[1])-5e-6||pt[1]>Math.max(a[1],b[1])+5e-6)continue;
+   if(segDistM(L.latLng(pt[1],pt[0]),{lat:a[1],lng:a[0]},{lat:b[1],lng:b[0]})<0.2)return true;}}return false;};
+ const lines=[];laneGroup.eachLayer(l=>{if(l instanceof L.Polyline&&!(l instanceof L.Polygon)&&l.options&&(l.options.color==='#ffffff'||l.options.color==='#fff')&&!l.options.className&&(l.options.weight||0)<=cw*1.6)lines.push(l);});
+ lines.forEach(l=>{try{const ll=l.getLatLngs();if(!ll.length||Array.isArray(ll[0]))return;const pts=sample(ll.map(q=>[q.lng,q.lat]),1.0);
+  const fl=pts.map(near);if(!fl.some(Boolean))return;
+  const da=l.options.dashArray,col=l.options.color,wt=l.options.weight;laneGroup.removeLayer(l);
+  let run=[pts[0]],cur=fl[0];
+  for(let i=1;i<pts.length;i++){run.push(pts[i]);if(fl[i]!==cur){if(cur)draw(run,CB,cw);else draw(run,col,wt,da);run=[pts[i]];cur=fl[i];}}
+  if(cur)draw(run,CB,cw);else draw(run,col,wt,da);
+ }catch(e){}});
+}
+// curbs never lie over a lane travel path: every curb line is cut where it runs through a road's travel lanes or an intersection path (edges stay)
+function curbTravelPass(){
+ const mpp=metersPerPixel(),lvl=curLevel||0,Z=[];
+ allLanes.forEach(o=>{try{if(!o.isCompleted||(o.lvl||0)!==lvl||!polyById[o.id])return;const v=vehPoly(o);if(!v)return;const q=turf.buffer(v,-0.2,{units:'meters',steps:2});if(q)Z.push(q);}catch(e){}});
+ allIx.forEach(x=>{if((x.lvl||0)!==lvl)return;x.conns.forEach(c=>{if(c.kind!=='road')return;try{const hw=(c.w||3)/2-0.2;if(hw<=0.2)return;const sp=stripPoly(geom(c).coords,-hw,hw);if(sp)Z.push(sp);}catch(e){}});});
+ if(!Z.length)return;
+ Z.forEach(z=>{try{z._bb=turf.bbox(z);}catch(e){}});
+ const curbs=[];laneGroup.eachLayer(l=>{if(l instanceof L.Polyline&&!(l instanceof L.Polygon)&&l.options&&l.options.color==='#b9b4a9'&&!l.options.className&&!l.options.dashArray)curbs.push(l);});
+ curbs.forEach(l=>{try{const ll=l.getLatLngs();if(!ll.length||Array.isArray(ll[0]))return;let pcs=[ll.map(q=>[q.lng,q.lat])],hit=false;
+  const bb=[1e9,1e9,-1e9,-1e9];pcs[0].forEach(q=>{bb[0]=Math.min(bb[0],q[0]);bb[1]=Math.min(bb[1],q[1]);bb[2]=Math.max(bb[2],q[0]);bb[3]=Math.max(bb[3],q[1]);});
+  Z.forEach(z=>{const b=z._bb;if(!b||b[0]>bb[2]||b[2]<bb[0]||b[1]>bb[3]||b[3]<bb[1])return;const nx=[];pcs.forEach(pc=>{const r=clipSplit(pc,z);if(r.inn.length)hit=true;r.out.forEach(x=>nx.push(x));});pcs=nx;});
+  if(!hit)return;const o=Object.assign({},l.options);laneGroup.removeLayer(l);
+  pcs.forEach(pc=>{if(pc.length>1)L.polyline(pc.map(q=>[q[1],q[0]]),o).addTo(laneGroup);});
+ }catch(e){}});
 }
 window.ixDraw=function(){
  const mpp=metersPerPixel();
@@ -6369,18 +6946,20 @@ window.ixDraw=function(){
   if(x._parts)try{drawParts(x._parts,laneGroup,mpp,true);}catch(e){console.error(e);}
   try{approach(x.conns,laneGroup,mpp,x,x._parts);}catch(e){console.error(e);}
   x.conns.forEach(c=>{if(c.kind==='tram')try{drawTramConn(c,laneGroup,mpp);}catch(e){console.error(e);}});
-  try{matThrough(x,mpp);}catch(e){console.error(e);}
   if(x.isSelected)try{drawSel(x);}catch(e){console.error(e);}
   if(on&&st.stage==='sel'&&st.tool==='pick'&&!st.conns.length)x.conns.forEach(c=>L.polyline(geom(c).coords.map(q=>[q[1],q[0]]),{className:'ix-hit',weight:16,opacity:0,bubblingMouseEvents:false}).addTo(laneGroup).on('click',ev=>{L.DomEvent.stopPropagation(ev);open(x);}));
  });
+ try{grassCurbPass();}catch(e){console.error(e);}
+ try{curbTravelPass();}catch(e){console.error(e);}
+ try{if(window.curbPostPass)window.curbPostPass();}catch(e){console.error(e);}
  ui();
 };
 
 // ---- a new crosswalk / bike crossing pushes the auto stop bars behind it (bars already further back stay where they are) ----
-function segInt(p,p2,q,q2){
+function segInt(p,p2,q,q2,eps){eps=eps||0;
  const r=[p2[0]-p[0],p2[1]-p[1]],t=[q2[0]-q[0],q2[1]-q[1]],d=r[0]*t[1]-r[1]*t[0];if(Math.abs(d)<1e-9)return null;
  const w=[q[0]-p[0],q[1]-p[1]],u=(w[0]*t[1]-w[1]*t[0])/d,v=(w[0]*r[1]-w[1]*r[0])/d;
- return(u>=0&&u<=1&&v>=0&&v<=1)?{u,cos:Math.abs((r[0]*t[0]+r[1]*t[1])/((Math.hypot(r[0],r[1])*Math.hypot(t[0],t[1]))||1))}:null;
+ return(u>=-eps&&u<=1+eps&&v>=-eps&&v<=1+eps)?{u:Math.max(0,Math.min(1,u)),cos:Math.abs((r[0]*t[0]+r[1]*t[1])/((Math.hypot(r[0],r[1])*Math.hypot(t[0],t[1]))||1))}:null;
 }
 function stopsBehind(c){
  try{
@@ -6433,7 +7012,7 @@ function stageNodes(){const K=st.stage==='sel'?'road':st.stage,all=nodes().filte
 const ORDER=['sel','road','tram','bike','walk','island','stop','mark'],TITLE={stop:'7 &middot; Stop bars',mark:'8 &middot; Edge markings',sel:'1 &middot; Select lane ends',road:'2 &middot; Lane paths',tram:'3 &middot; Tram paths',bike:'4 &middot; Bike paths',walk:'5 &middot; Sidewalks &amp; crosswalks',island:'6 &middot; Islands'};
 function hasKind(k){const e=endsOf();return nodes().some(n=>n.kind===k&&e.has(n.end));}
 function go(dir){
- let i=ORDER.indexOf(st.stage);do{i+=dir;}while(i>1&&i<ORDER.length&&ORDER[i]==='tram'&&!hasKind('tram'));
+ let i=ORDER.indexOf(st.stage);do{i+=dir;}while(i>1&&i<ORDER.length&&((ORDER[i]==='tram'&&!hasKind('tram'))||(ORDER[i]==='bike'&&!hasKind('bike'))||(ORDER[i]==='walk'&&!hasKind('walk'))));
  if(i<0||i>=ORDER.length)return;
  if(ORDER[i]!=='sel'&&st.sel.size<2){showToast('Pick at least two lane ends first.');return;}
  st.stage=ORDER[i];st.src=null;st.cur=null;st.fd=null;fdLayer.clearLayers();if(st.stage==='bike')autoWalk('bike');if(st.stage==='walk')autoWalk('walk');if(st.stage==='island')st.pieces=gapPieces(st.conns);
@@ -6497,12 +7076,14 @@ function snapSide(ll,kind){
   if(d<bd-0.5){bd=d;best={ll:map.containerPointToLatLng(q),w:t.w,two:t.two};}}});
  return best;
 }
-function addFree(kind,a,b){
+function addFree(kind,a,b,via){
+ via=(via||[]).filter(Boolean);
  const id=Date.now()+Math.random(),w=kind==='walk'?CW:Math.max(a.w||1.5,b.w||1.5);
- if(map.distance(a.ll,b.ll)<1.5){showToast('Too short.');return;}
+ if(!via.length&&map.distance(a.ll,b.ll)<1.5){showToast('Too short.');return;}
  ck();
- const cn={id,kind,ka:'f'+id+'a',kb:'f'+id+'b',a:{lat:a.ll.lat,lng:a.ll.lng,h:[0,0]},b:{lat:b.ll.lat,lng:b.ll.lng,h:[0,0]},w,sw:kind==='walk'?SWD:((a.w||1.83)+(b.w||1.83))/2,two:!!(a.two||b.two),straight:kind==='walk',cross:kind==='walk',c1:null,c2:null};
- if(kind==='bike'){      // a drawn bike crossing is a spline from the start: it leaves / meets a node end along that bike path's own axis, and its blue handles reshape it
+ const cn={id,kind,ka:'f'+id+'a',kb:'f'+id+'b',a:{lat:a.ll.lat,lng:a.ll.lng,h:[0,0]},b:{lat:b.ll.lat,lng:b.ll.lng,h:[0,0]},w,sw:kind==='walk'?SWD:((a.w||1.83)+(b.w||1.83))/2,two:!!(a.two||b.two),straight:kind==='walk'&&!via.length,cross:kind==='walk',c1:null,c2:null};
+ if(via.length){cn.via=via.map(p=>[p.lat,p.lng]);}
+ else if(kind==='bike'){      // a drawn bike crossing is a spline from the start: it leaves / meets a node end along that bike path's own axis, and its blue handles reshape it
   const rf=[a.ll.lng,a.ll.lat],Bv=xyOf([b.ll.lng,b.ll.lat],rf),d=Math.hypot(Bv[0],Bv[1])||1,k=d*0.38;
   const tan=(h,v)=>{if(!h||Math.hypot(h[0],h[1])<0.5)return null;const l=Math.hypot(h[0],h[1]),u=[h[0]/l,h[1]/l],dt=u[0]*v[0]+u[1]*v[1];if(Math.abs(dt)<0.25*d)return null;const sg=dt>0?1:-1;return[u[0]*sg,u[1]*sg];};
   const ta=tan(a.h,Bv),tb=tan(b.h,[-Bv[0],-Bv[1]]);
@@ -6512,25 +7093,57 @@ function addFree(kind,a,b){
  st.conns.push(cn);
  st.cur=id;stopsBehind(cn);
 }
+// handles of a path that has nodes: amber dots are the nodes (drag to move, double-click to remove), blue squares are each curve's spline handles
+function viaHandles(c,g,line){
+ const dot=(p,col,rad,z)=>L.marker(p,{draggable:true,zIndexOffset:z,icon:L.divIcon({className:'ix-node',iconSize:[16,16],iconAnchor:[8,8],html:'<div style="background:'+col+';border-radius:'+rad+'"></div>'})}).addTo(ixLayer);
+ const redraw=()=>line.setLatLngs(geom(c).coords.map(z=>[z[1],z[0]]));
+ const freeze=()=>{const gg=geom(c);c.c1=c.c1||gg.seg[0].p1.slice();c.c2=c.c2||gg.seg[gg.seg.length-1].p2.slice();
+  c.vh=c.via.map((v,i)=>{const o=(c.vh&&c.vh[i])||{};return{ho:o.ho||gg.seg[i+1].p1.slice(),hi:o.hi||gg.seg[i].p2.slice()};});};
+ const N=g.nodes,S=g.seg,last=N.length-1;
+ for(let j=0;j<=last;j++){
+  const nd=[N[j].lat,N[j].lng];
+  [['ho',j<last?S[j].p1:null],['hi',j>0?S[j-1].p2:null]].forEach(([which,hp])=>{
+   if(!hp)return;
+   L.polyline([nd,hp],{color:'#f59e0b',weight:1,dashArray:'3,3',interactive:false}).addTo(ixLayer);
+   const h=dot(hp,'#3b82f6','3px',3050);
+   h.on('dragstart',()=>{ck();freeze();});
+   h.on('drag',()=>{const q=h.getLatLng(),v=[q.lat,q.lng],m=[2*nd[0]-q.lat,2*nd[1]-q.lng];
+    if(j===0)c.c1=v;else if(j===last)c.c2=v;else{const e=c.vh[j-1];e[which]=v;e[which==='ho'?'hi':'ho']=m;}      // an inner node is smooth: the other handle mirrors this one
+    redraw();});
+   h.on('dragend',ui);
+  });
+ }
+ c.via.forEach((v,vi)=>{
+  const nh=dot(v,'#f59e0b','50%',3100);let o0=null;
+  nh.on('dragstart',()=>{ck();freeze();const e=c.vh[vi];o0={v:c.via[vi].slice(),ho:e.ho.slice(),hi:e.hi.slice()};});
+  nh.on('drag',()=>{const q=nh.getLatLng(),dl=q.lat-o0.v[0],dn=q.lng-o0.v[1];c.via[vi]=[q.lat,q.lng];c.vh[vi]={ho:[o0.ho[0]+dl,o0.ho[1]+dn],hi:[o0.hi[0]+dl,o0.hi[1]+dn]};redraw();});      // its handles travel with it
+  nh.on('dragend',ui);
+  nh.on('dblclick',ev=>{L.DomEvent.stop(ev);ck();removeVia(c,vi);ui();});
+ });
+}
 function ui(){
  ixLayer.clearLayers();curLine=null;if(!on)return;
  try{rpRefresh(st.conns);}catch(e){console.error(e);}
  const mpp=metersPerPixel(),px=m=>Math.max(2,m/mpp),all=stageNodes(),byKey={};all.forEach(n=>byKey[n.key]=n);
  if(st.stage==='sel'){all.forEach(n=>mk(n,st.sel.has(n.key)?'outline:3px solid #3b82f6;':'opacity:.75;',()=>{st.sel.has(n.key)?st.sel.delete(n.key):st.sel.add(n.key);ui();},st.tool==='pick'));panelUI();return;}
  const f=fillOf(st.conns);if(f)L.geoJSON(f,{interactive:false,style:{stroke:false,fillColor:'#374151',fillOpacity:.55}}).addTo(ixLayer);
- try{const P=partsOf(st.conns,roadAllFor(curLevel,f),medPolys(),curLevel,f,st.islands);drawParts(P,ixLayer,mpp,false);const inf=approach(st.conns,ixLayer,mpp,st,P);if(st.stage==='stop')stopHandles(inf);}catch(e){console.error(e);}
+ try{const P=partsOf(st.conns,roadAllFor(curLevel,f),medPolys(),curLevel,f,st.islands,st);drawParts(P,ixLayer,mpp,false);const inf=approach(st.conns,ixLayer,mpp,st,P);if(st.stage==='stop'){stopHandles(inf);rampHandles(P);}}catch(e){console.error(e);}
  try{drawIslandStage();}catch(e){console.error(e);}
  try{markEdges();}catch(e){console.error(e);}
  st.conns.forEach(c=>{
   const g=geom(c),ll=g.coords.map(q=>[q[1],q[0]]),cur=st.cur===c.id,thin=c.kind==='walk'||c.kind==='bike';
   const line=L.polyline(ll,{color:cur?'#3b82f6':COL[c.kind],weight:thin?(cur?3:2):px(Math.min(c.w,3)),opacity:cur?.9:(c.kind===st.stage?(thin?.8:.6):.3),interactive:false,lineCap:'round'}).addTo(ixLayer);
   L.polyline(ll,{color:'#fff',weight:1,dashArray:'4,5',opacity:.9,interactive:false}).addTo(ixLayer);
-  if(c.kind===st.stage)L.polyline(ll,{className:'ix-hit',weight:(st.stage==='bike'||st.stage==='walk')?5:16,opacity:0,bubblingMouseEvents:false}).addTo(ixLayer).on('click',ev=>{L.DomEvent.stopPropagation(ev);
-   if(st.fd&&(st.stage==='bike'||st.stage==='walk')){const sp=snapSide(ev.latlng,st.stage);if(sp){addFree(st.stage,st.fd.a,sp);st.fd=null;fdLayer.clearLayers();ui();return;}}      // mid-draw: a click on a path ends the crossing there
-   st.cur=c.id;ui();});
+  if(c.kind===st.stage)L.polyline(ll,{className:'ix-hit',weight:(st.stage==='bike'||st.stage==='walk')?12:16,opacity:0,bubblingMouseEvents:false}).addTo(ixLayer).on('click',ev=>{L.DomEvent.stopPropagation(ev);
+   if(st.fd&&(st.stage==='bike'||st.stage==='walk')){const sp=snapSide(ev.latlng,st.stage);if(sp){addFree(st.stage,st.fd.a,sp,st.fd.via);st.fd=null;fdLayer.clearLayers();ui();return;}}      // mid-draw: a click on a path ends the crossing there
+   if(st.cur===c.id)return;      // already selected: no redraw, so the second click of a double-click still lands on this line
+   st.cur=c.id;ui();})
+   .on('dblclick',ev=>{if(st.stage!=='walk'&&st.stage!=='bike')return;L.DomEvent.stop(ev);if(st.fd)return;ck();
+    if(insertNode(c,ev.latlng)){st.cur=c.id;ui();}else showToast('Double-click on the path itself, away from its ends, to add a node.');});
   if(c.kind==='road'||c.kind==='tram'){const i=Math.min(g.coords.length-2,Math.floor(g.coords.length*.65)),pa=map.latLngToContainerPoint(ll[i]),pb=map.latLngToContainerPoint(ll[i+1]),ang=Math.atan2(pb.y-pa.y,pb.x-pa.x)*180/Math.PI;
    L.marker(ll[i],{interactive:false,icon:L.divIcon({className:'ix-node',iconSize:[14,14],iconAnchor:[7,7],html:'<div style="all:unset;display:block;width:14px;height:14px;line-height:14px;font-size:13px;color:#fff;text-shadow:0 0 2px #000;transform:rotate('+ang+'deg)">&#9654;</div>'})}).addTo(ixLayer);}
-  if(cur&&!c.straight)[['c1',g.c1],['c2',g.c2]].forEach(([k,p])=>{
+  if(cur&&c.via&&c.via.length)viaHandles(c,g,line);
+  else if(cur&&!c.straight)[['c1',g.c1],['c2',g.c2]].forEach(([k,p])=>{
    const h=L.marker(p,{draggable:true,zIndexOffset:3000,icon:L.divIcon({className:'ix-node',iconSize:[16,16],iconAnchor:[8,8],html:'<div style="background:#3b82f6;border-radius:3px"></div>'})}).addTo(ixLayer);
    h.on('dragstart',()=>{ck();if(!c.c1&&!c.c2){c.c1=g.c1.slice();c.c2=g.c2.slice();}});
    h.on('drag',()=>{const q=h.getLatLng();c[k]=[q.lat,q.lng];line.setLatLngs(geom(c).coords.map(z=>[z[1],z[0]]));});
@@ -6543,9 +7156,9 @@ function ui(){
   mk(n,isSrc?'outline:3px solid #fff;transform:scale(1.35);':can?(used?'outline:3px solid #3b82f6;':'outline:3px solid #fde047;'):(st.src?'opacity:.35;':''),()=>{
    if(st.stage==='bike'){      // bike crossings are drawn: click a bike node (or a point on a bike path), then another, and reshape the spline afterwards
     const pt={ll:L.latLng(n.ll),w:n.w,two:n.two,h:n.h,node:true};
-    if(st.fd){addFree('bike',st.fd.a,pt);st.fd=null;fdLayer.clearLayers();}else{st.fd={a:pt};st.src=null;st.cur=null;}
+    if(st.fd){addFree('bike',st.fd.a,pt,st.fd.via);st.fd=null;fdLayer.clearLayers();}else{st.fd={a:pt,via:[]};st.src=null;st.cur=null;}
     ui();return;}
-   if((st.stage==='walk')&&st.fd){addFree(st.stage,st.fd.a,{ll:L.latLng(n.ll),w:n.w,two:n.two});st.fd=null;fdLayer.clearLayers();ui();return;}
+   if((st.stage==='walk')&&st.fd){addFree(st.stage,st.fd.a,{ll:L.latLng(n.ll),w:n.w,two:n.two},st.fd.via);st.fd=null;fdLayer.clearLayers();ui();return;}
    if(!st.src||!byKey[st.src]){if(n.role!=='dst'){st.src=n.key;st.cur=null;}}   // 1 click: origin, then just click destinations
    else if(isSrc)st.src=null;
    else if(n.role!=='src'){ck();toggle(byKey[st.src],n);}
@@ -6584,10 +7197,17 @@ function guess(){
 }
 const selOv=L.layerGroup().addTo(map);
 map.on('mousedown',e=>{if(!on||!st||st.stage!=='sel'||st.tool==='pick'||(e.originalEvent&&e.originalEvent.button))return;map.dragging.disable();st.drag=[e.latlng];});
+let lastFdLL=null;
+function fdPreview(ll){
+ lastFdLL=ll;fdLayer.clearLayers();if(!st||!st.fd)return;const s=snapSide(ll,st.stage),q=s?s.ll:ll,via=st.fd.via||[];
+ let pts=[st.fd.a.ll].concat(via.map(v=>L.latLng(v.lat,v.lng)),[q]);
+ if(via.length){try{pts=viaCurve({a:{lat:st.fd.a.ll.lat,lng:st.fd.a.ll.lng},b:{lat:q.lat,lng:q.lng},via:via.map(v=>[v.lat,v.lng])}).coords.map(z=>[z[1],z[0]]);}catch(er){}}
+ L.polyline(pts,{color:s?'#3b82f6':'#9ca3af',weight:2,dashArray:'5,5',interactive:false}).addTo(fdLayer);
+ via.forEach(v=>L.circleMarker(v,{radius:4,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1,interactive:false}).addTo(fdLayer));
+ if(s)L.circleMarker(q,{radius:5,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:1,interactive:false}).addTo(fdLayer);
+}
 map.on('mousemove',e=>{
- if(on&&st&&st.fd){fdLayer.clearLayers();const s=snapSide(e.latlng,st.stage),q=s?s.ll:e.latlng;
-  L.polyline([st.fd.a.ll,q],{color:s?'#3b82f6':'#9ca3af',weight:2,dashArray:'5,5',interactive:false}).addTo(fdLayer);
-  if(s)L.circleMarker(q,{radius:5,color:'#fff',weight:2,fillColor:'#3b82f6',fillOpacity:1,interactive:false}).addTo(fdLayer);}
+ if(on&&st&&st.fd)fdPreview(e.latlng);
  if(!on||!st||!st.drag)return;selOv.clearLayers();const d=st.drag;
  if(st.tool==='box')L.rectangle([d[0],e.latlng],{color:'#3b82f6',weight:1,interactive:false}).addTo(selOv);
  else{d.push(e.latlng);L.polygon(d,{color:'#3b82f6',weight:1,interactive:false}).addTo(selOv);}});
@@ -6603,17 +7223,18 @@ function panelUI(){
  panel.style.display='flex';
  const last=st.stage==='mark';      // Finish only appears on the last step
  const hint={road:st.src?'Click each destination (click another origin to move on)':'Click an origin (green) node',tram:st.src?'Click each destination':'Click an origin node',
-  bike:st.fd?'Click where the bike crossing ends: a bike node or any point on a bike path (Esc cancels)':'Draw a bike crossing: click a bike node end (or a point on an existing bike path), then the node / bike path it meets. Click right on a path\'s line to select it and reshape it with its blue spline handles (a click just beside the line starts a crossing from it). Bike strips round a corner are detected automatically',
+  bike:st.fd?'Click empty ground to add path points (Del removes the last), then click a bike node or any point on a bike path to finish (Esc cancels)':'Draw a bike crossing: click a bike node end (or a point on an existing bike path), then the node / bike path it meets. Click right on a path\'s line to select it and reshape it with its blue spline handles; double-click the line to add a node (drag nodes and handles, double-click a node to remove it) (a click just beside the line starts a crossing from it). Bike strips round a corner are detected automatically',
   island:'Pick Concrete, Grass or Painted, then click a yellow gap to add that island (click an island again to remove it, or click it with another type to change it)',
   stop:'Stop bars start where the lanes diverge and slide along the road paths and back onto the adjoining road sections. Bars never draw over curbs. Drag the blue square to move a whole approach, or an orange dot to move one lane. Click an orange dot to remove / restore a bar; double-click it to split a forking lane bar in two (purple) or join it again. Arrows follow their bar when you drag it (right-click an arrow to delete it, a bar to turn it into yield triangles)',
-  mark:'Choose type, number, thickness and colour, then click the edge (dotted line) of a path. Markings stop at concrete. Use the last dropdown to set a start / end point along the edge or remove a marking',
-  walk:st.fd?'Click the sidewalk on the other side (Esc cancels)':'Right-click a crosswalk to make it Continental, Ladder or Raised (or set them all with the dropdown). Corner sidewalks follow each road\'s buffer, walk and curb; click right on a corner path\'s line to reshape it with its blue spline handles (the label shows the approximate curb radius). To add a crosswalk click one sidewalk, then another (they only snap to sidewalks)'};
+  mark:'Choose type, number, thickness and color, then click the edge (dotted line) of a path. Markings stop at concrete. Use the last dropdown to set a start / end point along the edge or remove a marking',
+  walk:st.fd?'Click the sidewalk on the other side (click empty ground first to add path points, Del removes the last; Esc cancels)':'Right-click a crosswalk to make it Continental, Ladder or Raised (or set them all with the dropdown). Corner sidewalks follow each road\'s buffer, walk and curb; click right on a corner path\'s line to reshape it with its blue spline handles, double-click it to add a node (the label shows the approximate curb radius). To add a crosswalk click one sidewalk, then another (they only snap to sidewalks)'};
  const cc=st.cur&&st.conns.find(x=>x.id===st.cur),
   wi=(cc&&cc.kind==='walk'&&cc.cross)?'<label style="display:flex;align-items:center;gap:3px">Walk <input type="number" data-w="sw" step="0.5" min="1" style="width:56px;background:#1f2937;color:#fff;border:1px solid #4b5563;border-radius:4px;padding:2px 4px" value="'+(isMetric?(cc.sw||SWD).toFixed(1):((cc.sw||SWD)*3.28084).toFixed(1))+'"> '+(isMetric?'m':'ft')+'</label>':'';
  panel.innerHTML=st.stage==='sel'
   ?'<b>'+TITLE.sel+'</b><span>'+st.sel.size+' picked</span>'+T('pick','Click')+T('box','Box')+T('lasso','Lasso')+B('all','All in view')+B('clear','Clear')+B('next','Next &rarr;','go')+B('cancel','Close')
   :'<b>'+TITLE[st.stage]+'</b><span>'+hint[st.stage]+'. Click a path to select it.</span>'
    +((st.stage==='road'||st.stage==='tram')?B('guess','Guess'):'')+((st.stage==='walk'||st.stage==='bike')?B('redetect','Re-detect corners'):'')+(st.stage==='island'?[['concrete','Concrete'],['grass','Grass'],['paint','Painted']].map(([k,t])=>B('ik:'+k,t,st.islKind===k?'go':'')).join('')+B('fillall','Fill all')+B('clearis','Clear'):'')+(st.stage==='walk'?'<label style="display:flex;align-items:center;gap:3px">All crosswalks <select data-cvall="1" style="background:#1f2937;color:#fff;border:1px solid #4b5563;border-radius:4px;padding:2px 4px"><option value="">Set all to&hellip;</option><option value="cont">Continental</option><option value="ladder">Ladder</option><option value="raised">Raised</option></select></label>':'')+(st.stage==='stop'?B('resetstop','Reset stop bars'):'')+(st.stage==='mark'?mkPanel():'')+(st.cur?B('reset','Auto curve')+B('del','Delete path'):'')+wi
+   +((st.stage!=='sel'&&st.stage!=='bike'&&!hasKind('bike'))?B('goto:bike','Bike paths'):'')+((st.stage!=='sel'&&st.stage!=='walk'&&!hasKind('walk'))?B('goto:walk','Sidewalks'):'')+((st.stage!=='sel'&&st.stage!=='tram'&&!hasKind('tram'))?B('goto:tram','Tram'):'')
    +B('back','&larr; Back')+(last?'':B('next','Next &rarr;','go'))+(last?B('finish','Finish &#10003;','go'):'')+B('cancel','Cancel')+(st.edit?B('delix','Delete intersection'):'');
 }
 panel.addEventListener('change',e=>{
@@ -6634,9 +7255,10 @@ panel.addEventListener('click',e=>{
  else if(a==='redetect'){const K=st.stage==='bike'?'bike':'walk';st.noAuto.clear();st.conns=st.conns.filter(c=>!(c.auto&&c.kind===K));autoWalk(K);}
  else if(a==='all')stageNodes().forEach(n=>{if(map.getBounds().contains(n.ll))st.sel.add(n.key);});
  else if(a==='clear')st.sel.clear();
+ else if(a.indexOf('goto:')===0){const K=a.slice(5);st.stage=K;st.src=null;st.cur=null;st.fd=null;fdLayer.clearLayers();if(K==='bike'||K==='walk')autoWalk(K);}
  else if(a==='next')go(1);
  else if(a==='back')go(-1);
- else if(a==='reset'){const c=st.conns.find(x=>x.id===st.cur);if(c)c.c1=c.c2=null;}
+ else if(a==='reset'){const c=st.conns.find(x=>x.id===st.cur);if(c){c.c1=c.c2=null;if(c.via){c.via=null;if(c.kind==='walk'&&c.cross)c.straight=true;}}}
  else if(a==='del'){const c=st.conns.find(x=>x.id===st.cur);if(c)rm(c);st.cur=null;}
  else if(a==='finish'){finish();return;}
  else if(a==='delix'){close(true);return;}
@@ -6676,8 +7298,10 @@ map.on('click',e=>{
  if(st.stage==='sel'&&!st.conns.length&&st.tool!=='pick'&&!st.dragged){const hx_=hitIx(e.latlng);if(hx_){open(hx_);return;}}      // Box / Lasso are the default: a plain click on an intersection still opens it
  if(st.stage==='walk'||st.stage==='bike'){
   const s=snapSide(e.latlng,st.stage);
-  if(s){if(!st.fd){st.fd={a:s};st.src=null;st.cur=null;}else{addFree(st.stage,st.fd.a,s);st.fd=null;fdLayer.clearLayers();}ui();return;}
-  if(st.fd){showToast(st.stage==='walk'?'Crosswalks only snap to sidewalks.':'Bike paths only snap to bike paths.');return;}
+  if(s){if(!st.fd){st.fd={a:s,via:[]};st.src=null;st.cur=null;}else{addFree(st.stage,st.fd.a,s,st.fd.via);st.fd=null;fdLayer.clearLayers();}ui();return;}
+  if(!st.fd&&st.src){const n0=stageNodes().find(q=>q.key===st.src);      // a selected node handle, then empty ground: it draws like placing a line
+   if(n0){st.fd={a:{ll:L.latLng(n0.ll),w:n0.w,two:n0.two,h:n0.h,node:true},via:[e.latlng]};st.src=null;st.cur=null;fdPreview(e.latlng);ui();return;}}
+  if(st.fd){(st.fd.via=st.fd.via||[]).push(e.latlng);fdPreview(e.latlng);return;}      // empty ground while drawing: a waypoint
  }
  st.src=null;st.cur=null;ui();
 });
@@ -6685,6 +7309,7 @@ window.addEventListener('keydown',e=>{
  if(!on)return;const t=e.target;if(/INPUT|SELECT|TEXTAREA/.test(t.tagName)||t.isContentEditable)return;
  if(e.key==='Escape'){if(st.fd){st.fd=null;fdLayer.clearLayers();ui();}else if(st.src||st.cur){st.src=null;st.cur=null;ui();}}      // only clears the current pick - the intersection stays open (use Cancel to leave)
  else if(e.key==='Enter'){e.preventDefault();if(st.stage==='mark')finish();else{const nb=panel.querySelector('[data-a=next]');if(nb)nb.click();}}
+ else if((e.key==='Delete'||e.key==='Backspace')&&st.fd&&st.fd.via&&st.fd.via.length){e.preventDefault();e.stopImmediatePropagation();st.fd.via.pop();if(lastFdLL)fdPreview(lastFdLL);}
  else if((e.key==='Delete'||e.key==='Backspace')&&st.stage!=='sel'&&st.cur){const c=st.conns.find(x=>x.id===st.cur);if(c){ck();rm(c);}st.cur=null;ui();}
 });
 
@@ -6733,8 +7358,11 @@ const isRG=m=>m==='red'||m==='green';
 function matThrough(x,mpp){
  x.conns.forEach(c=>{
   if(c.kind!=='road'||!c.ka||!c.kb)return;
-  const ma=laneMat(c.ka),mb=laneMat(c.kb);if(!isRG(ma)||!isRG(mb))return;
-  L.polyline(geom(c).coords.map(q=>[q[1],q[0]]),{color:PAVE[ma].hex,weight:Math.max(1,(c.w||3)/mpp),opacity:1,dashArray:c.solid?null:(0.6/mpp)+','+(0.9/mpp),lineCap:'butt',interactive:false,smoothFactor:0}).addTo(laneGroup);
+  const ma=laneMat(c.ka),mb=laneMat(c.kb);if(!isRG(ma)||!isRG(mb)||c.nopaint||c.solid)return;
+  // painted dashes: same red / green as the lane fill, under every marking, rail and curb; they break at crosswalks and bike paths
+  let pcs=[geom(c).coords];
+  try{const P=x._parts,Z=P?(P.bz||[]).concat(P.cwBand||[]).concat((P.bikePaint||[]).map(b=>b.poly)):[];if(Z.length)pcs=cut(pcs,Z).out;}catch(e){}
+  pcs.forEach(pc=>{if(pc.length>1)L.polyline(pc.map(q=>[q[1],q[0]]),{color:PAVE[ma].hex,weight:Math.max(1,(c.w||3)/mpp),opacity:.85,dashArray:c.solid?null:(0.6/mpp)+','+(0.9/mpp),lineCap:'butt',interactive:false,smoothFactor:0}).addTo(laneGroup).bringToBack();});
  });
 }
 window.ixCrossAt=ll=>{
@@ -6747,11 +7375,12 @@ window.ixConnAt=ll=>{
  let best=null,bd=1e9;
  allIx.forEach(x=>{if((x.lvl||0)!==curLevel)return;x.conns.forEach(c=>{if(c.kind!=='road')return;
   try{const g=geom(c).coords,P=L.latLng(ll);for(let i=0;i<g.length-1;i++){const d=segDistM(P,{lat:g[i][1],lng:g[i][0]},{lat:g[i+1][1],lng:g[i+1][0]});if(d<bd&&d<=(c.w||3)/2+0.3){bd=d;best={x,c};}}}catch(e){}});});
- if(best){const ma=laneMat(best.c.ka),mb=laneMat(best.c.kb);best.dash=isRG(ma)&&isRG(mb);}
+ if(best){const ma=laneMat(best.c.ka),mb=laneMat(best.c.kb);best.dash=isRG(ma)&&isRG(mb)&&!best.c.nopaint;}
  return best;
 };
 window.ixIslandPolys=(lvl,curbedOnly)=>{const out=[];allIx.forEach(x=>{if((x.lvl||0)!==lvl)return;(x.islands||[]).forEach(is=>{if(curbedOnly&&(is.kind==='paint'||is.kind==='asphalt'))return;try{out.push(turf.polygon([is.ring]));}catch(e){}});});return out;};
 window.ixFillMinusIsl=lvl=>{const isl=window.ixIslandPolys(lvl);return window.ixFillPolys(lvl).map(f=>{let r=f;try{isl.forEach(z=>{if(r)r=turf.difference(r,z);});}catch(e){r=f;}return r;}).filter(Boolean);};
+$('ctx-ix-delpaint').addEventListener('click',()=>{ctxHide();const r=window.__rightConn;if(!r)return;saveHistoryState();r.c.nopaint=true;updateLaneGraphics();updateUndoRedoUI();});
 $('ctx-ix-solid').addEventListener('click',()=>{ctxHide();const r=window.__rightConn;if(!r)return;saveHistoryState();r.c.solid=!r.c.solid;updateLaneGraphics();updateUndoRedoUI();});
 $('ctx-ix-stop').addEventListener('click',()=>{ctxHide();const r=window.__rightConn;if(!r||!lastRightClickLatLon)return;saveHistoryState();
  try{const x0=r.x;x0.arrowAt=x0.arrowAt||{};approach(x0.conns,L.layerGroup(),metersPerPixel(),x0).forEach(E=>E.L0.forEach(o2=>{if(x0.arrowAt[o2.ka]===undefined){const u2=E.units.find(q=>q.o===o2);if(u2)x0.arrowAt[o2.ka]=u2.s0;}}));}catch(e){console.error(e);}
@@ -6835,9 +7464,9 @@ $('ctx-ix-del').addEventListener('click',()=>{ctxHide();const x=window.__rightIx
  saveHistoryState();allIx=allIx.filter(q=>!list.includes(q));window.__rightIx=null;updateLaneGraphics();updateUndoRedoUI();
  showToast(list.length+' intersection'+(list.length===1?'':'s')+' deleted');});
 // ---- save / undo integration ----
+window.ixConnCoords=c=>{try{return geom(c).coords;}catch(e){return null;}};
 window.ixSerialize=()=>allIx.map(x=>({ixrec:true,id:x.id,lvl:x.lvl,pave:x.pave,noAuto:x.noAuto||[],conns:x.conns,islands:x.islands||[],stops:x.stops||{},stopEnd:x.stopEnd||{},stopDel:x.stopDel||{},stopSplit:x.stopSplit||{},arrowAt:x.arrowAt||{},arrowDel:x.arrowDel||{},stopYield:x.stopYield||{}}));
 window.ixLoad=arr=>{allIx=(arr||[]).map(x=>({id:x.id,lvl:x.lvl||0,pave:x.pave||null,noAuto:x.noAuto||[],conns:x.conns||[],islands:x.islands||[],stops:x.stops||{},stopEnd:x.stopEnd||{},stopDel:x.stopDel||{},stopSplit:x.stopSplit||{},arrowAt:x.arrowAt||{},arrowDel:x.arrowDel||{},stopYield:x.stopYield||{}}));allIx.forEach(x=>{try{rpRefresh(x.conns);}catch(e){}});if(on){on=false;st=null;panel.style.display='none';document.body.classList.remove('ix-on');btn.classList.remove('active');ixLayer.clearLayers();fdLayer.clearLayers();}};
-$('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> &mdash; select nodes (Box by default), then draw lane paths, tram paths and bike paths; the last step detects sidewalk corners from each road\'s buffer / walk / curb (corner paths follow the road curves by default; click one to reshape it with its spline handles) and lets you click two sidewalks to add a crosswalk. Enter goes to the next step and finishes on the last; Esc only clears the current pick (use Cancel to leave). Click an intersection path (with the tool on) to edit it. Ctrl+Z / Ctrl+Y undo and redo the editor\'s own changes without leaving it.</div><div><b>Intersections</b> &mdash; click one (outside the tool) to select it, Shift adds, Box / Lasso pick them too; Del deletes; right-click for Edit or Delete; a material swatch paints the selected ones.</div>');
 })();
 </script>
 
@@ -6890,8 +7519,6 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         allLanes.forEach(o => { if (o.isCompleted && o.points.length > 1 && (o.lvl || 0) === curLevel) { test(o.points[0]); test(o.points[o.points.length - 1]); } });
         return best || r;
     };
-    const kb = document.getElementById('keybind-list');
-    if (kb) kb.insertAdjacentHTML('beforeend', '<div><b>Starting a lane</b> &mdash; click on the end of any lane, rail, sidewalk or bike path, or on the middle of a lane (it is broken there). Hold Alt to place a point without snapping.</div><div><b>European bike paths</b> &mdash; the Units toggle makes red the default bike material and crossings a solid red fill.</div>');
 })();
 </script>
 <script>
@@ -6991,7 +7618,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
           body: '<p>Stop bars start where the lanes diverge. Drag the <b>blue square</b> to slide a whole approach, or an <b>orange dot</b> to move one lane. Click an orange dot to remove or restore a bar, and right-click a bar to turn it into yield triangles.</p><p>Press <b>Next</b> to continue.</p>',
           tryIt: 'Reach Stage 8', done: () => stg() >= 7 },
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 8: edge markings, then Finish',
-          body: '<p>Pick a line type, number, thickness and colour, then click a path\u2019s dotted edge to mark it. Markings stop at concrete.</p><p>Press <b>Finish &#10003;</b> in the strip to create the intersection. <b>Back</b> returns to any earlier stage.</p>',
+          body: '<p>Pick a line type, number, thickness and color, then click a path\u2019s dotted edge to mark it. Markings stop at concrete.</p><p>Press <b>Finish &#10003;</b> in the strip to create the intersection. <b>Back</b> returns to any earlier stage.</p>',
           tryIt: 'Press Finish', req: true, done: () => !!(window.ixSerialize && window.ixSerialize().length) && !ixs() },
         { dim: false, pos: 'bottom', title: 'Select, edit and delete',
           body: '<p>A finished intersection is its own object. <b>Click</b> it to select (Shift adds more), <kbd>Del</kbd> removes the selection, and <b>right-click</b> it for <b>Edit Intersection&hellip;</b> or <b>Delete</b>.</p><p>Let\u2019s reopen the editor: right-click the junction and choose <b>Edit Intersection&hellip;</b>.</p>',
@@ -7151,7 +7778,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         ov.querySelector('.sh-close').addEventListener('click', close);
         ov.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') close(); });
         window.addEventListener('keydown', e => { if (e.key === 'Escape' && ov.style.display === 'flex') { e.stopPropagation(); close(); } }, true);
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'tool-btn tr-how'; b.id = 'btn-share-help'; b.textContent = '\u2753 How do I share this to others?';
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'tool-btn tr-how'; b.id = 'btn-share-help'; b.textContent = '\u2753 How do I share this with others?';
         $('tr-share-panel').appendChild(b);
         b.addEventListener('click', () => { items.forEach(it => it.classList.remove('open')); ov.style.display = 'flex'; ov.querySelector('.sh-close').focus(); });
     })();
