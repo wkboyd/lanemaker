@@ -14,7 +14,7 @@
   this program (see LICENSE); if not, see <https://www.gnu.org/licenses/agpl-3.0.html>.
 
   Sign designs are original vector drawings that follow the layout of the U.S. MUTCD (a federal
-  publication). Third-party libraries loaded from CDNs (Tailwind CSS, Leaflet, html2canvas, Turf.js) keep
+  publication). Third-party libraries loaded from CDNs (Tailwind CSS, Leaflet, Turf.js) keep
   their own permissive licenses; map imagery and tiles remain subject to their providers' terms.
 -->
 <html lang="en">
@@ -223,6 +223,34 @@
         .intro-box li { margin: 2px 0; }
         #intro-x { position: absolute; top: 2px; right: 6px; border: none; background: none; color: inherit; font-size: 1.2rem; cursor: pointer; line-height: 1.2; }
         #dark-toggle:checked ~ .page-wrapper .intro-box { background: #1f2937; color: #f3f4f6; border-color: #4b5563; }
+        .intro-box { max-width: 340px; max-height: calc(100% - 60px); overflow-y: auto; }
+        .intro-box .intro-title { font-size: .86rem; }
+        .intro-box .intro-lead { margin: 2px 0 0; }
+        .intro-actions { display: flex; gap: 6px; margin-top: 8px; }
+        .intro-actions button { flex: 1 1 0; padding: 6px 8px; font-size: .76rem; border-radius: 5px; border: 1px solid #9ca3af; background: transparent; color: inherit; cursor: pointer; }
+        .intro-actions button:hover { background: rgba(127,127,127,.18); }
+        .intro-actions .intro-go { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+        .intro-actions .intro-go:hover { background: #1d4ed8; }
+        #ctx-ix-edit, #ctx-ix-del { }
+        /* tutorial walkthrough */
+        #tut-spot { position: fixed; z-index: 4000; display: none; pointer-events: none; border: 2px solid #3b82f6; border-radius: 8px; box-shadow: 0 0 0 9999px rgba(0,0,0,.4); transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease; }
+        #tut-card { position: fixed; z-index: 4001; width: 310px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 12px 14px 10px; background: #fff; color: #111827; border: 1px solid #9ca3af; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.45); font-size: .8rem; line-height: 1.45; }
+        #dark-toggle:checked ~ #tut-card { background: #1f2937; color: #f3f4f6; border-color: #4b5563; }
+        #tut-card h4 { margin: 0 0 4px; font-size: .92rem; font-weight: 700; }
+        #tut-card p { margin: 0 0 6px; }
+        #tut-card .tut-count { position: absolute; top: 10px; right: 12px; font-size: .7rem; opacity: .65; }
+        #tut-card .tut-try { margin: 6px 0 2px; padding: 5px 8px; border-radius: 5px; background: rgba(37,99,235,.12); border: 1px solid rgba(37,99,235,.45); font-size: .76rem; }
+        #tut-card .tut-try.ok { background: rgba(22,163,74,.15); border-color: rgba(22,163,74,.6); }
+        #tut-card .tut-bar { height: 3px; border-radius: 2px; background: rgba(127,127,127,.3); margin: 8px 0; overflow: hidden; }
+        #tut-card .tut-bar i { display: block; height: 100%; background: #2563eb; transition: width .2s; }
+        #tut-card .tut-nav { display: flex; gap: 6px; align-items: center; }
+        #tut-card .tut-nav button { padding: 5px 12px; border-radius: 5px; border: 1px solid #9ca3af; background: transparent; color: inherit; font-size: .76rem; cursor: pointer; }
+        #tut-card .tut-nav button:hover { background: rgba(127,127,127,.18); }
+        #tut-card .tut-nav .tut-next { margin-left: auto; background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+        #tut-card .tut-nav .tut-next:hover { background: #1d4ed8; }
+        #tut-card .tut-nav .tut-skip { border: none; padding: 5px 2px; opacity: .7; text-decoration: underline; }
+        #tut-card kbd { font: 600 .72rem system-ui, sans-serif; padding: 0 4px; border: 1px solid #9ca3af; border-radius: 3px; background: rgba(127,127,127,.15); }
+        @media (prefers-reduced-motion: reduce) { #tut-spot { transition: none; } }
     </style>
 </head>
 <body>
@@ -231,6 +259,7 @@
         <aside id="custom-toolbar" class="sidebar">
             <div class="sb-head">
                 <h2>lanemaker.net</h2>
+                <button type="button" id="btn-help" class="tool-btn" style="width:auto;margin-left:auto;white-space:nowrap" title="Quick start and tutorial">? Help</button>
                 <label for="dark-toggle" class="tool-btn" style="width:auto;cursor:pointer">
                     <span class="toggle-text-light">Dark</span><span class="toggle-text-dark">Light</span>
                 </label>
@@ -343,14 +372,21 @@
         <div id="map-wrap">
             <div id="intro-box" class="intro-box" style="display:none">
                 <button id="intro-x" type="button" title="Close">&times;</button>
-                <b>Quick start</b>
+                <b class="intro-title">Quick start</b>
+                <p class="intro-lead">Draw roads lane by lane on a real map, then save a picture of it.</p>
                 <ul>
-                    <li><b>Lane Tool</b>: click to place points, double-click to finish.</li>
-                    <li>Click a segment to select it. Drag the blue handles on its sides to add or remove lanes.</li>
+                    <li><b>Lane Tool</b>: click to place points, double-click to finish. Click a segment to select it, then drag the blue handles on its sides to add or remove lanes.</li>
                     <li>Hover a segment end: <b style="color:#3b82f6">+</b> adds one lane, <b style="color:#3b82f6">&#10140;</b> continues the whole road.</li>
-                    <li>Right-click a lane for markings, paint, features and tram rail.</li>
-                    <li><b>Rail Tool</b>: draws standalone track.</li>
+                    <li><b>Right-click</b> a lane for markings, material, crosswalks, stop bars, arrows, signs, medians, bike lanes and tram rail.</li>
+                    <li><b>Sidewalk</b>, <b>Bike Path</b> and <b>Rail</b> tools draw standalone strips and track.</li>
+                    <li><b>Intersection Tool</b>: join lane ends with paths, curb returns and crosswalks. Click an intersection to select it; right-click it to edit or delete.</li>
+                    <li><b>Box / Lasso</b> select lanes, nodes and intersections (Shift adds). Del deletes, Esc deselects, R flips a lane.</li>
+                    <li><b>Crop &amp; Export Map</b> saves a PNG. <b>Save</b> keeps your project as a file.</li>
                 </ul>
+                <div class="intro-actions">
+                    <button id="intro-tour" type="button" class="intro-go">Take the tutorial</button>
+                    <button id="intro-skip" type="button">Dismiss</button>
+                </div>
             </div>
             <div id="search-wrap">
                 <div id="search-box">
@@ -394,6 +430,7 @@
                                 <button class="context-menu-item hidden" id="ctx-paint-ext">Extension</button>
                                 <button class="context-menu-item hidden" id="ctx-paint-seg">Segment</button>
                                 <button class="context-menu-item hidden" id="ctx-edit-side">Edit Sidewalk…</button>
+                                <button class="context-menu-item hidden" id="ctx-ix-edit">Edit Intersection…</button>
                                 <button class="context-menu-item hidden" id="ctx-paint-side">Sidewalk</button>
                                 <button class="context-menu-item hidden" id="ctx-paint-rail">Pavement Material to Bike Path</button>
                                 <button class="context-menu-item hidden" id="ctx-paint-ix">Intersection</button>
@@ -462,6 +499,7 @@
                                 <button class="context-menu-item hidden" id="ctx-delnode" data-name="Node">Delete Node</button>
                                 <button class="context-menu-item hidden" id="ctx-delseg" data-name="Segment">Delete Segment</button>
                                 <button class="context-menu-item hidden" id="ctx-del-side" data-name="Sidewalk">Delete Sidewalk</button>
+                                <button class="context-menu-item hidden" id="ctx-ix-del" data-name="Intersection">Delete Intersection</button>
                                 <button class="context-menu-item hidden" id="ctx-combine">Combine Lanes</button>
                                 <button class="context-menu-item hidden" id="ctx-rail-ins">Insert Node Here</button>
                                 <button class="context-menu-item hidden" id="ctx-rail-delnode" data-name="Node">Delete Node</button>
@@ -473,7 +511,6 @@
 
     <div id="feat-modal"><div class="fm-box"><h3 id="fm-title"></h3><div id="fm-body"></div><div class="fm-actions"><button id="fm-cancel">Cancel</button><button id="fm-ok">Place</button></div></div></div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 
     <script>
@@ -982,6 +1019,7 @@
         function deselectAllLanes() {
             allLanes.forEach(l => l.isSelected = false);
             allRails.forEach(r => r.isSelected = false);
+            if (window.ixClearSel) window.ixClearSel();
             updateSliderRangeUI();
         }
 
@@ -1742,9 +1780,10 @@
                 }
 
                 const selectedLanes = allLanes.filter(l => l.isSelected && l.isCompleted);
-                if (selectedLanes.length > 0 || allRails.some(r => r.isSelected)) {
+                if (selectedLanes.length > 0 || allRails.some(r => r.isSelected) || (window.ixHasSel && window.ixHasSel())) {
                     e.preventDefault();
                     saveHistoryState();
+                    if (window.ixDeleteSel) window.ixDeleteSel();
                     allRails = allRails.filter(r => !r.isSelected);
                     allLanes = allLanes.filter(l => !selectedLanes.includes(l));
                     activeLaneId = null;
@@ -1894,6 +1933,15 @@
                 if (lastSideHit) pb.textContent = (lastSideHit.kind === 'bike' ? 'Bike Lane' : 'Sidewalk') + ' (' + PAVE[curPave].n + ')';
                 document.getElementById('ctx-paint-rail').classList.add('hidden');
             }
+            {
+                let ixh = null;
+                try { if (window.ixHit && lastRightClickLatLon && !lastSideHit) ixh = window.ixHit(lastRightClickLatLon); } catch (e) { /* none */ }
+                window.__rightIx = ixh;
+                const ixs = window.ixSelected ? window.ixSelected() : [], multi = !!ixh && ixh.isSelected && ixs.length > 1;
+                document.getElementById('ctx-ix-edit').classList.toggle('hidden', !ixh || multi);
+                const idl = document.getElementById('ctx-ix-del'); idl.classList.toggle('hidden', !ixh); idl.dataset.name = multi ? ixs.length + ' Intersections' : 'Intersection';
+                if (ixh) ['ctx-streetview', 'ctx-elevation', 'ctx-lane', 'ctx-rail', 'ctx-bike', 'ctx-walk'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            }
             { const tOn = !!(hasHit && lastRightClickLane.tram && lastRightClickLane.tram[hit.laneIdx]); document.getElementById('ctx-tram').classList.toggle('hidden', !hasHit || tOn); document.getElementById('ctx-tram-off').classList.toggle('hidden', !tOn); }
             {
                 const bl = hasHit ? lastRightClickLane : null, bn = bl ? (bl.totalLaneCount || 1) : 0, tg = id => document.getElementById(id).classList;
@@ -1962,7 +2010,7 @@
             }
             if (isDrawing && !lastRightClickLane && !lastRightClickNodeInfo) { closeLaneTool(); return; }
 
-            if ((selectedLanes.length > 0 || (window.__hasSelNodes && window.__hasSelNodes())) && !lastRightClickNodeInfo && !lastRightClickLane && !lastRightRail && combineBtn.classList.contains('hidden')) {
+            if ((selectedLanes.length > 0 || (window.__hasSelNodes && window.__hasSelNodes()) || (window.ixHasSel && window.ixHasSel())) && !lastRightClickNodeInfo && !lastRightClickLane && !lastRightRail && !window.__rightIx && combineBtn.classList.contains('hidden')) {
                 if (window.__clearSelNodes) window.__clearSelNodes();
                 deselectAllLanes();
                 updateLaneGraphics();
@@ -3204,7 +3252,8 @@
                 const b = document.createElement('button'); b.className = 'swatch'; b.dataset.k = k; b.title = PAVE[k].n; b.style.background = PAVE[k].hex;
                 b.onclick = () => {
                     curPave = k; syncPave();
-                    const sel = allLanes.filter(l => l.isSelected && l.isCompleted), selR = allRails.filter(r => r.isSelected && r.kind === 'bike');
+                    const sel = allLanes.filter(l => l.isSelected && l.isCompleted), selR = allRails.filter(r => r.isSelected && r.kind === 'bike'), selX = window.ixSelected ? window.ixSelected() : [];
+                    if (selX.length) { saveHistoryState(); selX.forEach(x => { x.pave = (k === 'asphalt') ? null : k; }); if (!sel.length && !selR.length) { updateLaneGraphics(); updateUndoRedoUI(); } }
                     if (selR.length) { saveHistoryState(); selR.forEach(r => { r.pave = (k === 'asphalt') ? null : k; }); if (!sel.length) { updateLaneGraphics(); updateUndoRedoUI(); } }
                     if (sel.length) { saveHistoryState(); sel.forEach(l => { l.pave = k; l.paveSub = null; l.paveExt = null; if (l.sw) ['l', 'r'].forEach(sd => { if (l.sw[sd] && l.sw[sd].bike) l.sw[sd].bikePave = (k === 'asphalt') ? null : k; }); }); updateLaneGraphics(); updateUndoRedoUI(); }
                 }; row.appendChild(b);
@@ -4834,34 +4883,32 @@
             pickEarthLand().then(p => { if (p && !moved && bmGroup !== 'ogf' && !allLanes.length) map.setView(p, 17, { animate: false }); });
         })();
 
-        // ---- Crop & export (ported from ChartOGF) ----
+        // ---- Crop & export ----
+        // The basemap tiles and the lane graphics are drawn straight onto a canvas from the map's own coordinates.
+        // Nothing is screenshotted, the map is never zoomed or scaled while exporting, so the picture can't shift or lose its lanes.
         (function cropExport() {
-            const box = $('crop-box'), ctl = $('export-controls'), mapEl = $('map'), sSlider = $('exportScaleSlider'), sVal = $('exportScaleVal');
-            const preset = $('cropPresetSelect'), orient = $('cropOrientationSelect'), lock = $('lockRatioCheck');
+            const box = $('crop-box'), ctl = $('export-controls'), sSlider = $('exportScaleSlider'), sVal = $('exportScaleVal');
+            const preset = $('cropPresetSelect'), orient = $('cropOrientationSelect'), lock = $('lockRatioCheck'), mapEl = $('map');
             const PR = { a3: 420 / 297, a4: 297 / 210, a5: 210 / 148, b4: 353 / 250, b5: 250 / 176, c4: 324 / 229, c5: 229 / 162, dl: 220 / 110, letter: 11 / 8.5, archA: 12 / 9, archB: 18 / 12, archC: 24 / 18, archD: 36 / 24 };
-            let active = false, ratio = null, geo = null, scale = 1, baseZ = null, baseC = null;
+            const MAX_SIDE = 16000, MAX_PIX = 64e6, MAX_TILES = 900, BAND = 2800, NS = 'http://www.w3.org/2000/svg';
+            let active = false, ratio = null, geo = null, busy = false;
             const MW = () => mapEl.offsetWidth, MH = () => mapEl.offsetHeight;
-            sSlider.addEventListener('input', e => { sVal.textContent = e.target.value + '%'; });
-            sSlider.addEventListener('change', e => applyScale(parseInt(e.target.value, 10) / 100));
-            function applyScale(s) {
-                scale = s;
-                mapEl.style.width = s === 1 ? '' : s * 100 + '%'; mapEl.style.height = s === 1 ? '' : s * 100 + '%'; mapEl.style.transform = s === 1 ? '' : 'scale(' + (1 / s) + ')';
-                const c = (active && geo) ? geo.getCenter() : baseC;
-                if (baseZ !== null && c) map.setView(c, baseZ + Math.log2(s), { animate: false });
-                map.invalidateSize({ pan: false, animate: false });
-                if (active && geo) recenter();
-                updateDOM();
+            const boxPx = () => ({ l: parseFloat(box.style.left) || 0, t: parseFloat(box.style.top) || 0, w: parseFloat(box.style.width) || 0, h: parseFloat(box.style.height) || 0 });
+            // the scale really used: the slider's, lowered when the picture would be too big for a browser canvas
+            function outScale() {
+                const b = boxPx(), s = parseInt(sSlider.value, 10) / 100; if (!b.w || !b.h) return s;
+                return Math.min(s, MAX_SIDE / b.w, MAX_SIDE / b.h, Math.sqrt(MAX_PIX / (b.w * b.h)));
             }
-            function recenter() {
-                const bw = parseFloat(box.style.width) || MW() * 0.85, bh = parseFloat(box.style.height) || MH() * 0.85, l = (MW() - bw) / 2, t = (MH() - bh) / 2;
-                box.style.left = l + 'px'; box.style.top = t + 'px';
-                map.panTo(geo.getCenter(), { animate: false });
-                geo = L.latLngBounds(map.containerPointToLatLng([l, t]), map.containerPointToLatLng([l + bw, t + bh]));
+            function showSize() {
+                const b = boxPx(), k = outScale(), pct = parseInt(sSlider.value, 10);
+                sVal.textContent = (active && b.w) ? pct + '% (' + Math.round(b.w * k) + ' \u00d7 ' + Math.round(b.h * k) + ' px' + (k < pct / 100 - 1e-6 ? ', capped' : '') + ')' : pct + '%';
             }
+            sSlider.addEventListener('input', showSize);
             function updateDOM() {
                 if (!active || !geo) return;
                 const nw = map.latLngToContainerPoint(geo.getNorthWest()), se = map.latLngToContainerPoint(geo.getSouthEast());
                 box.style.left = nw.x + 'px'; box.style.top = nw.y + 'px'; box.style.width = Math.max(20, se.x - nw.x) + 'px'; box.style.height = Math.max(20, se.y - nw.y) + 'px';
+                showSize();
             }
             map.on('move moveend zoomend resize', updateDOM);
             function setBounds(l, t, w, h) {
@@ -4869,6 +4916,7 @@
                 l = Math.max(0, Math.min(l, mw_ - 20)); t = Math.max(0, Math.min(t, mh_ - 20)); w = Math.max(20, Math.min(w, mw_ - l)); h = Math.max(20, Math.min(h, mh_ - t));
                 box.style.left = l + 'px'; box.style.top = t + 'px'; box.style.width = w + 'px'; box.style.height = h + 'px';
                 geo = L.latLngBounds(map.containerPointToLatLng([l, t]), map.containerPointToLatLng([l + w, t + h]));
+                showSize();
             }
             function applyPreset() {
                 if (!active) return;
@@ -4882,14 +4930,14 @@
             $('btn-crop').onclick = () => {
                 if (active) return;
                 if (isDrawing) closeLaneTool();
+                closeRailTool(); setSelTool('pointer');
                 deselectAllLanes(); activeLaneId = null; updateLaneGraphics();
-                active = true; baseZ = map.getZoom(); baseC = map.getCenter(); map.options.zoomSnap = 0;
-                box.style.display = 'block'; ctl.style.display = 'flex';
-                setBounds(MW() * 0.075, MH() * 0.075, MW() * 0.85, MH() * 0.85); applyPreset();
+                active = true; box.style.display = 'block'; ctl.style.display = 'flex';
+                setBounds(MW() * 0.075, MH() * 0.075, MW() * 0.85, MH() * 0.85); applyPreset(); showSize();
             };
             function exit() {
                 active = false; box.style.display = 'none'; ctl.style.display = 'none'; geo = null;
-                sSlider.value = 100; sVal.textContent = '100%'; applyScale(1); baseZ = null; baseC = null; map.options.zoomSnap = 1;
+                sSlider.value = 100; showSize();
                 preset.value = 'custom'; orient.value = 'landscape'; lock.checked = false; ratio = null;
             }
             $('cancelCropBtn').onclick = exit;
@@ -4902,7 +4950,7 @@
             box.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
             function onMove(e) {
                 if (!drag) return;
-                const dx = (e.clientX - sx) / scale, dy = (e.clientY - sy) / scale; let l = sl, t = st, w = sw, h = sh;
+                const dx = e.clientX - sx, dy = e.clientY - sy; let l = sl, t = st, w = sw, h = sh;
                 if (drag === 'move') { l += dx; t += dy; }
                 else {
                     if (drag.includes('e')) w = sw + dx; if (drag.includes('s')) h = sh + dy;
@@ -4912,54 +4960,145 @@
                 setBounds(l, t, w, h);
             }
             function onUp() { drag = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }
-            $('downloadPngBtn').onclick = () => {
-                if (typeof html2canvas === 'undefined') { showToast('Export library failed to load (check your connection).'); return; }
-                const btn = $('downloadPngBtn'); btn.textContent = 'Rendering...'; btn.disabled = true;
-                deselectAllLanes(); activeLaneId = null; updateLaneGraphics();
-                box.style.display = 'none'; document.body.classList.add('exporting');
-                const old = mapEl.style.transform; mapEl.style.transform = 'none';
-                const c = { x: parseFloat(box.style.left) || 0, y: parseFloat(box.style.top) || 0, w: parseFloat(box.style.width) || 0, h: parseFloat(box.style.height) || 0 };
-                const restore = () => { mapEl.style.transform = old; document.body.classList.remove('exporting'); box.style.display = 'block'; btn.textContent = 'Save High-Res Image'; btn.disabled = false; };
-                const bg = darkToggle.checked ? '#000000' : '#f3f4f6', base = { x: c.x, y: c.y, width: c.w, height: c.h, useCORS: true, scale: 1, logging: false };
-                const hasCls = (el, list) => el && el.classList && list.some(p => el.classList.contains(p));
-                const toImg = (svg, w, h) => new Promise(res => {
-                    try {
-                        const cl = svg.cloneNode(true); cl.removeAttribute('style'); cl.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); cl.setAttribute('width', w); cl.setAttribute('height', h);
-                        const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(cl)], { type: 'image/svg+xml;charset=utf-8' })), im = new Image();
-                        im.onload = () => res({ im, url }); im.onerror = () => { URL.revokeObjectURL(url); res(null); }; im.src = url;
-                    } catch (e) { res(null); }
+
+            // ---------- basemap: fetch the map's own tiles and place each one from lat/lng ----------
+            function loadImg(url) {
+                return new Promise(res => {
+                    const im = new Image(); let fin = false;
+                    const done = v => { if (!fin) { fin = true; clearTimeout(to); res(v); } };
+                    const to = setTimeout(() => done(null), 20000);
+                    im.crossOrigin = 'anonymous'; im.onload = () => done(im); im.onerror = () => done(null); im.src = url;
                 });
-                // pass 1: basemap only. The lanes are SVG, which html2canvas drops, so they are drawn onto the result directly, then pass 2 adds the markers on top.
-                html2canvas(mapEl, Object.assign({}, base, { backgroundColor: bg, ignoreElements: el => hasCls(el, ['leaflet-overlay-pane', 'leaflet-marker-pane', 'leaflet-shadow-pane', 'leaflet-tooltip-pane', 'leaflet-popup-pane']) }))
-                    .then(async cv => {
-                        const ctx = cv.getContext('2d'), mr = mapEl.getBoundingClientRect(), sv = mapEl.querySelector('.leaflet-overlay-pane svg');
+            }
+            async function drawBasemap(ctx, b, k, progress) {
+                const lay = bmLayer, op = parseFloat(bmSlider.value);
+                if (!lay || !(op > 0) || !map.hasLayer(lay)) return { n: 0, bad: 0 };
+                const z = map.getZoom(), nat = lay.options.maxNativeZoom != null ? lay.options.maxNativeZoom : (lay.options.maxZoom != null ? lay.options.maxZoom : 22);
+                const nw = map.containerPointToLatLng([b.l, b.t]), se = map.containerPointToLatLng([b.l + b.w, b.t + b.h]);
+                let TZ = Math.min(nat, Math.max(0, Math.ceil(z + Math.log2(k) - 0.2))), x0, x1, y0, y1;
+                for (;;) {      // finer tiles for a bigger export, as long as that stays a sensible number of requests
+                    const p = map.project(nw, TZ), q = map.project(se, TZ), n = Math.pow(2, TZ);
+                    x0 = Math.floor(p.x / 256); x1 = Math.floor((q.x - 0.001) / 256); y0 = Math.max(0, Math.floor(p.y / 256)); y1 = Math.min(n - 1, Math.floor((q.y - 0.001) / 256));
+                    if ((x1 - x0 + 1) * (y1 - y0 + 1) <= MAX_TILES || TZ <= 0) break; TZ--;
+                }
+                const lc = op < 0.999 ? document.createElement('canvas') : null;      // partly transparent basemap: tiles go on a spare canvas first so seams don't show
+                if (lc) { lc.width = ctx.canvas.width; lc.height = ctx.canvas.height; }
+                const tctx = lc ? lc.getContext('2d') : ctx;
+                tctx.imageSmoothingEnabled = true; tctx.imageSmoothingQuality = 'high';
+                const cache = new Map();
+                const tileUrl = (x, y, zz) => {      // the layer's own URL builder (subdomains, Bing quadkeys, ...)
+                    const n = Math.pow(2, zz), old = lay._tileZoom; lay._tileZoom = zz;
+                    try { return lay.getTileUrl({ x: ((x % n) + n) % n, y, z: zz }); } finally { lay._tileZoom = old; }
+                };
+                async function fetchTile(x, y, zz) {
+                    const key = zz + '/' + x + '/' + y; if (cache.has(key)) return cache.get(key);
+                    let im = null;
+                    if (y >= 0 && y < Math.pow(2, zz)) {
+                        let url = null; try { url = tileUrl(x, y, zz); } catch (e) { url = null; }
+                        if (url) { im = await loadImg(url); if (!im) im = await loadImg(url + (url.indexOf('?') < 0 ? '?' : '&') + '_x=' + Date.now()); }      // a browser-cached copy without CORS headers can fail once
+                    }
+                    cache.set(key, im); return im;
+                }
+                async function getTile(x, y) {      // the tile, or failing that a piece of its parent
+                    for (let d = 0; d <= 3 && TZ - d >= 0; d++) {
+                        const f = Math.pow(2, d), xx = Math.floor(x / f), yy = Math.floor(y / f), im = await fetchTile(xx, yy, TZ - d);
+                        if (im) { const u = im.naturalWidth / 256, sz = 256 / f; return { im, sx: (x - xx * f) * sz * u, sy: (y - yy * f) * sz * u, sw: sz * u, sh: sz * u, d }; }
+                    }
+                    return null;
+                }
+                const jobs = []; for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) jobs.push([tx, ty]);
+                const size = 256 * Math.pow(2, z - TZ) * k; let next = 0, done = 0, bad = 0, soft = 0;
+                const worker = async () => {
+                    while (next < jobs.length) {
+                        const [tx, ty] = jobs[next++], t = await getTile(tx, ty);
+                        progress(Math.round(++done / jobs.length * 100));
+                        if (!t) { bad++; continue; } if (t.d) soft++;
+                        const cp = map.latLngToContainerPoint(map.unproject(L.point(tx * 256, ty * 256), TZ)), ox = (cp.x - b.l) * k, oy = (cp.y - b.t) * k;
+                        tctx.drawImage(t.im, t.sx, t.sy, t.sw, t.sh, ox - 0.3, oy - 0.3, size + 0.6, size + 0.6);
+                    }
+                };
+                await Promise.all(Array.from({ length: Math.min(8, jobs.length) }, worker));
+                if (lc) { ctx.globalAlpha = op; ctx.drawImage(lc, 0, 0); ctx.globalAlpha = 1; }
+                cache.clear();
+                return { n: jobs.length, bad, soft };
+            }
+
+            // ---------- lanes: the map's SVG, plus the sign / arrow / text icons, drawn at any scale from the same coordinates ----------
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            function iconsMarkup() {
+                const ser = new XMLSerializer(); let out = '';
+                map.getPane('markerPane').querySelectorAll('.feat-icon').forEach(el => {
+                    try {
+                        const pos = L.DomUtil.getPosition(el), ch = el.firstElementChild; if (!pos || !ch) return;
+                        const W = parseFloat(el.style.width) || 0, H = parseFloat(el.style.height) || 0;
+                        const cx = pos.x + (parseFloat(el.style.marginLeft) || 0) + W / 2, cy = pos.y + (parseFloat(el.style.marginTop) || 0) + H / 2;
+                        const cw = parseFloat(ch.style.width) || W, chh = parseFloat(ch.style.height) || H;
+                        const rm = /rotate\(\s*(-?[\d.eE+-]+)deg\s*\)/.exec(ch.style.transform || ''), rot = rm ? parseFloat(rm[1]) : 0;
+                        const head = '<g transform="translate(' + cx + ' ' + cy + ') rotate(' + rot + ') translate(' + (-cw / 2) + ' ' + (-chh / 2) + ')">';
+                        const sv = ch.querySelector('svg');
                         if (sv) {
-                            const r = sv.getBoundingClientRect(), o = await toImg(sv, r.width, r.height);
-                            if (o) { ctx.drawImage(o.im, r.left - mr.left - c.x, r.top - mr.top - c.y, r.width, r.height); URL.revokeObjectURL(o.url); } else showToast('Lane graphics could not be drawn into the image.');
+                            const c = sv.cloneNode(true); c.setAttribute('width', cw); c.setAttribute('height', chh); c.setAttribute('x', 0); c.setAttribute('y', 0); c.removeAttribute('style');
+                            if (!c.getAttribute('viewBox') && sv.getAttribute('width') && sv.getAttribute('height')) c.setAttribute('viewBox', '0 0 ' + parseFloat(sv.getAttribute('width')) + ' ' + parseFloat(sv.getAttribute('height')));
+                            out += head + ser.serializeToString(c) + '</g>';
+                        } else {      // pavement lettering: rows of stretched text
+                            const fs = parseFloat(ch.style.fontSize) || 12; let y = 0, g = head;
+                            Array.from(ch.children).forEach(row => {
+                                const rh = parseFloat(row.style.height) || fs, sp = row.firstElementChild, sm = sp && /scaleY\(\s*([\d.]+)\s*\)/.exec(sp.style.transform || ''), st_ = sm ? parseFloat(sm[1]) : 1;
+                                g += '<text xml:space="preserve" transform="translate(' + (cw / 2) + ' ' + (y + rh / 2) + ') scale(1 ' + st_ + ')" text-anchor="middle" dy="0.35em" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="' + fs + '" letter-spacing="' + (0.04 * fs) + '" fill="#ffffff">' + esc(row.textContent) + '</text>';
+                                y += rh;
+                            });
+                            out += g + '</g>';
                         }
-                        try {
-                            const mk = await html2canvas(mapEl, Object.assign({}, base, {
-                                backgroundColor: null, ignoreElements: el => hasCls(el, ['leaflet-tile-pane', 'leaflet-overlay-pane', 'leaflet-shadow-pane']),
-                                onclone: doc => {
-                                    const m = doc.getElementById('map'); if (m) { m.style.setProperty('background', 'transparent', 'important'); m.style.setProperty('background-color', 'transparent', 'important'); }
-                                    doc.querySelectorAll('.leaflet-marker-pane svg').forEach(svg => {
-                                        const im = doc.createElement('img'); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
-                                        im.width = parseFloat(svg.getAttribute('width')) || 0; im.height = parseFloat(svg.getAttribute('height')) || 0; im.style.cssText = svg.style.cssText + ';display:block'; svg.replaceWith(im);
-                                    });
-                                }
-                            }));
-                            ctx.drawImage(mk, 0, 0);
-                        } catch (e) { console.error('marker pass', e); }
-                        return cv;
-                    })
-                    .then(cv => {
-                        restore();
-                        const a = document.createElement('a'); a.download = 'lane-export-' + sSlider.value + 'percent.png'; a.href = cv.toDataURL('image/png'); a.click();
-                        exit();
-                    }).catch(err => { restore(); alert('Screenshot failed: ' + err.message); });
+                    } catch (e) { console.warn('export icon', e); }
+                });
+                return out;
+            }
+            function svgToImage(markup) {
+                return new Promise(res => {
+                    const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml;charset=utf-8' })), im = new Image();
+                    im.onload = () => { res({ im, url }); }; im.onerror = () => { URL.revokeObjectURL(url); res(null); }; im.src = url;
+                });
+            }
+            async function drawLanes(ctx, b) {
+                const W = ctx.canvas.width, H = ctx.canvas.height, kx = W / b.w, ky = H / b.h;
+                const pane = map.getPane('overlayPane'), svg = pane && pane.querySelector('svg'); let inner = '';
+                if (svg) {
+                    const cl = svg.cloneNode(true), ser = new XMLSerializer();
+                    cl.querySelectorAll('.marching-ants, .ix-hit').forEach(n => n.remove());      // selection outlines and invisible hit lines stay out of the picture
+                    Array.from(cl.childNodes).forEach(n => { inner += ser.serializeToString(n); });
+                }
+                inner += iconsMarkup();
+                if (!inner) return;
+                const o = map.containerPointToLayerPoint([b.l, b.t]);      // layer coordinates: what the SVG paths and the icons are positioned in
+                for (let oy = 0; oy < H; oy += BAND) for (let ox = 0; ox < W; ox += BAND) {      // drawn in pieces so no single image is huge
+                    const pw = Math.min(BAND, W - ox), ph = Math.min(BAND, H - oy);
+                    const markup = '<svg xmlns="' + NS + '" xmlns:xlink="http://www.w3.org/1999/xlink" width="' + pw + '" height="' + ph + '" viewBox="' + (o.x + ox / kx) + ' ' + (o.y + oy / ky) + ' ' + (pw / kx) + ' ' + (ph / ky) + '">' + inner + '</svg>';
+                    const r = await svgToImage(markup); if (!r) throw new Error('the lane graphics could not be rendered');
+                    ctx.drawImage(r.im, ox, oy, pw, ph); URL.revokeObjectURL(r.url);
+                }
+            }
+
+            $('downloadPngBtn').onclick = async () => {
+                if (busy || !active) return;
+                const btn = $('downloadPngBtn'); busy = true; btn.disabled = true; btn.textContent = 'Rendering...';
+                try {
+                    deselectAllLanes(); activeLaneId = null; updateLaneGraphics();
+                    if (map._renderer && map._renderer._update) { try { map._renderer._update(); } catch (e) { /* keep going */ } }
+                    const b = boxPx(), k = outScale();
+                    const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(b.w * k)); cv.height = Math.max(1, Math.round(b.h * k));
+                    const ctx = cv.getContext('2d'); if (!ctx) throw new Error('canvas not available');
+                    ctx.fillStyle = darkToggle.checked ? '#000000' : '#f3f4f6'; ctx.fillRect(0, 0, cv.width, cv.height);
+                    const info = await drawBasemap(ctx, b, k, p => { btn.textContent = 'Basemap ' + p + '%'; });
+                    btn.textContent = 'Drawing lanes...';
+                    await drawLanes(ctx, b);
+                    const blob = await new Promise((res, rej) => cv.toBlob(x => x ? res(x) : rej(new Error('the image is too large for this browser, lower the scale')), 'image/png'));
+                    const a = document.createElement('a'), u = URL.createObjectURL(blob); a.download = 'lane-export-' + sSlider.value + 'percent.png'; a.href = u; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
+                    if (info.bad) showToast(info.bad + ' basemap tile' + (info.bad === 1 ? '' : 's') + ' could not be loaded (the tile server may block downloads). Try another basemap or a lower scale.');
+                    exit();
+                } catch (err) { console.error(err); showToast('Export failed: ' + ((err && err.message) || err)); }
+                finally { busy = false; btn.disabled = false; btn.textContent = 'Save High-Res Image'; }
             };
         })();
-
 
         // ---- Custom basemap URL: https only, must be a z/x/y template; tiles load purely as <img>, never as script ----
         (function customUrl() {
@@ -5148,6 +5287,9 @@
             try { seen = !!localStorage.getItem('laneToolIntroSeen'); } catch (e) { /* storage blocked */ }
             if (!seen) { box.style.display = 'block'; try { localStorage.setItem('laneToolIntroSeen', '1'); } catch (e) { /* ignore */ } }
             $('intro-x').onclick = () => { box.style.display = 'none'; };
+            $('intro-skip').onclick = () => { box.style.display = 'none'; };
+            $('intro-tour').onclick = () => { box.style.display = 'none'; if (window.startTutorial) window.startTutorial(); };
+            $('btn-help').onclick = () => { box.style.display = box.style.display === 'block' ? 'none' : 'block'; };
         })();
         updateSliderRangeUI();
         updateUndoRedoUI();
@@ -5179,7 +5321,7 @@
             const fw = document.getElementById('ctx-feat-wrap'); if (fw) fw.style.display = 'none';
             const matLabel = { id: 'ctx-mat-wrap', label: 'Material to', items: [{ split: 'ctx-paint-lane', items: ['ctx-paint-ext'] }, 'ctx-paint-seg', 'ctx-paint-ix', 'ctx-paint-side'] };
             [
-                { id: 'ctx-del-wrap', label: 'Delete', items: ['ctx-feat-del', 'ctx-delnode', 'ctx-delseg', 'ctx-del-side', 'ctx-tram-off', 'ctx-rail-delnode', 'ctx-rail-del'] },
+                { id: 'ctx-del-wrap', label: 'Delete', items: ['ctx-feat-del', 'ctx-delnode', 'ctx-delseg', 'ctx-del-side', 'ctx-ix-del', 'ctx-tram-off', 'ctx-rail-delnode', 'ctx-rail-del'] },
                 { id: 'ctx-conv-wrap', label: 'Convert to', items: ['ctx-turn', 'ctx-bike2', 'ctx-bike1', 'ctx-bikeoff', 'ctx-conv-yield', 'ctx-conv-stop', { id: 'ctx-convmed-wrap', label: 'Median', items: ['ctx-medp', 'ctx-medg', 'ctx-medc'] }, 'ctx-medoff', { id: 'ctx-convcross-wrap', label: 'Crosswalk', items: ['ctx-cc-cont', 'ctx-cc-ladder', 'ctx-cc-raised'] }] },
                 { id: 'ctx-add-wrap', label: 'Add', items: [
                     { id: 'ctx-addmark-wrap', label: 'Marking', items: ['ctx-f-arrow', { id: 'ctx-stop-wrap', label: 'Stop Bar', items: ['ctx-f-stop', 'ctx-f-stop-lane'] }, { id: 'ctx-yield-wrap', label: 'Yield Triangles', items: ['ctx-f-yield', 'ctx-f-yield-lane'] }, 'ctx-f-hump', 'ctx-f-word', 'ctx-f-rrx'] },
@@ -5771,6 +5913,7 @@ window.ixDraw=function(){
   if(x._parts)try{drawParts(x._parts,laneGroup,mpp,true);}catch(e){console.error(e);}
   try{approach(x.conns,laneGroup,mpp);}catch(e){console.error(e);}
   x.conns.forEach(c=>{if(c.kind==='tram')try{drawTramConn(c,laneGroup,mpp);}catch(e){console.error(e);}});
+  if(x.isSelected)try{drawSel(x);}catch(e){console.error(e);}
   if(on&&st.stage==='sel'&&st.tool==='pick'&&!st.conns.length)x.conns.forEach(c=>L.polyline(geom(c).coords.map(q=>[q[1],q[0]]),{className:'ix-hit',weight:16,opacity:0,bubblingMouseEvents:false}).addTo(laneGroup).on('click',ev=>{L.DomEvent.stopPropagation(ev);open(x);}));
  });
  ui();
@@ -6044,10 +6187,165 @@ window.addEventListener('keydown',e=>{
  else if(e.key==='Enter'){e.preventDefault();if(st.stage==='walk')finish();else{const nb=panel.querySelector('[data-a=next]');if(nb)nb.click();}}
  else if((e.key==='Delete'||e.key==='Backspace')&&st.stage!=='sel'&&st.cur){const c=st.conns.find(x=>x.id===st.cur);if(c)rm(c);st.cur=null;ui();}
 });
+
+// ---- selecting intersections: click, Shift+click, Box / Lasso, Delete, and the right-click menu ----
+function ringsOf(g){const out=[];if(!g||!g.geometry)return out;const add=p=>p.forEach(r=>out.push(r));
+ if(g.geometry.type==='Polygon')add(g.geometry.coordinates);else if(g.geometry.type==='MultiPolygon')g.geometry.coordinates.forEach(add);return out;}
+function drawSel(x){      // same blue marching outline a selected segment gets
+ const o={color:'#3b82f6',weight:2,className:'marching-ants',interactive:false,fill:false},f=fillOf(x.conns);
+ ringsOf(f).forEach(r=>L.polyline(r.map(q=>[q[1],q[0]]),o).addTo(laneGroup));
+ x.conns.forEach(c=>{if(f&&(c.kind==='road'||c.kind==='tram'))return;try{L.polyline(geom(c).coords.map(q=>[q[1],q[0]]),o).addTo(laneGroup);}catch(e){}});
+}
+function ixHitAt(ll){
+ const cp=map.latLngToContainerPoint(ll),pt=turf.point([ll.lng,ll.lat]);
+ for(const x of allIx){if((x.lvl||0)!==curLevel)continue;const f=fillOf(x.conns);if(f){try{if(turf.booleanPointInPolygon(pt,f))return x;}catch(e){}}}
+ let best=null,bd=Infinity;const mpp=metersPerPixel();
+ allIx.forEach(x=>{if((x.lvl||0)!==curLevel)return;x.conns.forEach(c=>{try{
+  const g=geom(c).coords,tol=Math.min(40,Math.max(8,((c.w||3)/2)/mpp));
+  for(let i=0;i<g.length-1;i++){const A=map.latLngToContainerPoint([g[i][1],g[i][0]]),B=map.latLngToContainerPoint([g[i+1][1],g[i+1][0]]),d=cp.distanceTo(L.LineUtil.closestPointOnSegment(cp,A,B));if(d<tol&&d<bd){bd=d;best=x;}}
+ }catch(e){}});});
+ return best;
+}
+window.ixHit=ixHitAt;
+window.ixHasSel=()=>allIx.some(x=>x.isSelected);
+window.ixSelected=()=>allIx.filter(x=>x.isSelected);
+window.ixClearSel=()=>{let ch=false;allIx.forEach(x=>{if(x.isSelected){x.isSelected=false;ch=true;}});return ch;};
+window.ixDeleteSel=()=>{const n=allIx.length;allIx=allIx.filter(x=>!x.isSelected);return n-allIx.length;};
+window.ixSelectIn=poly=>{let n=0;
+ allIx.forEach(x=>{if((x.lvl||0)!==curLevel||x.isSelected)return;let hit=false;
+  try{const f=fillOf(x.conns);if(f)hit=turf.booleanIntersects(f,poly);}catch(e){}
+  if(!hit)x.conns.some(c=>{try{if(turf.booleanIntersects(turf.lineString(geom(c).coords),poly)){hit=true;return true;}}catch(e){}return false;});
+  if(hit){x.isSelected=true;n++;}});
+ return n;};
+// a plain click on an intersection (outside the Intersection Tool) selects it; Shift toggles
+map.on('click',e=>{
+ if(on||!e.originalEvent||e.originalEvent.target.closest('#custom-toolbar'))return;
+ if(selTool!=='pointer'||railToolOn||isDrawing||extendingEndpointIndex!==null)return;
+ const x=ixHitAt(e.latlng);if(!x)return;
+ if(e.originalEvent.shiftKey)x.isSelected=!x.isSelected;else{deselectAllLanes();x.isSelected=true;}
+ activeLaneId=null;updateSliderRangeUI();updateLaneGraphics();
+});
+// Box / Lasso pick intersections along with segments and nodes
+{const _ds=doSelect;doSelect=function(poly,additive){_ds(poly,additive);
+ let n=0;try{n=window.ixSelectIn(poly);}catch(e){console.error(e);}
+ if(n){updateLaneGraphics();const t=allIx.filter(x=>x.isSelected).length;showToast(t+' intersection'+(t===1?'':'s')+' selected (Del deletes, right-click edits)');}};}
+const ctxHide=()=>{const m=$('map-context-menu');if(m)m.style.display='none';};
+$('ctx-ix-edit').addEventListener('click',()=>{ctxHide();const x=window.__rightIx;if(!x||!allIx.includes(x))return;open(x);});
+$('ctx-ix-del').addEventListener('click',()=>{ctxHide();const x=window.__rightIx;if(!x)return;
+ const list=x.isSelected&&allIx.filter(q=>q.isSelected).length>1?allIx.filter(q=>q.isSelected):[x];
+ saveHistoryState();allIx=allIx.filter(q=>!list.includes(q));window.__rightIx=null;updateLaneGraphics();updateUndoRedoUI();
+ showToast(list.length+' intersection'+(list.length===1?'':'s')+' deleted');});
 // ---- save / undo integration ----
 window.ixSerialize=()=>allIx.map(x=>({ixrec:true,id:x.id,lvl:x.lvl,pave:x.pave,noAuto:x.noAuto||[],conns:x.conns}));
 window.ixLoad=arr=>{allIx=(arr||[]).map(x=>({id:x.id,lvl:x.lvl||0,pave:x.pave||null,noAuto:x.noAuto||[],conns:x.conns||[]}));if(on){on=false;st=null;panel.style.display='none';document.body.classList.remove('ix-on');btn.classList.remove('active');ixLayer.clearLayers();fdLayer.clearLayers();}};
-$('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> &mdash; select nodes (Box by default), then draw lane paths, tram paths and bike paths; the last step detects sidewalk corners from each road\'s buffer / walk / curb (edit a corner\'s radius with its orange dot or box) and lets you click two sidewalks to add a crosswalk. Enter goes to the next step and finishes on the last, Esc cancels. Click an intersection path (with the tool on) to edit it.</div>');
+$('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> &mdash; select nodes (Box by default), then draw lane paths, tram paths and bike paths; the last step detects sidewalk corners from each road\'s buffer / walk / curb (edit a corner\'s radius with its orange dot or box) and lets you click two sidewalks to add a crosswalk. Enter goes to the next step and finishes on the last, Esc cancels. Click an intersection path (with the tool on) to edit it.</div><div><b>Intersections</b> &mdash; click one (outside the tool) to select it, Shift adds, Box / Lasso pick them too; Del deletes; right-click for Edit or Delete; a material swatch paints the selected ones.</div>');
+})();
+</script>
+
+<script>
+// ---- Tutorial walkthrough: a short guided tour of the real controls. Opened from the intro card or the "? Help" button. ----
+(function tutorial() {
+    const $ = id => document.getElementById(id);
+    const mod = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '\u2318' : 'Ctrl';
+    const sec = id => () => { const e = $(id); return e && e.closest('.sb-sec'); };
+    const steps = [
+        { title: 'Welcome',
+          body: '<p>This tour walks through drawing a road, finishing an intersection and saving a picture. Every highlighted control is the real one, so you can try it as you go.</p><p>Use <b>Next</b> whenever you are ready; nothing here changes your work unless you do it yourself.</p>' },
+        { el: () => $('bm-details'), enter: () => { const d = $('bm-details'); if (!d.open) { d.open = true; openedBm = true; } }, title: 'Pick a basemap',
+          body: '<p>Choose Satellite or OSM (the arrow beside each one lists more maps), and use the opacity slider to fade the map behind your drawing. The search bar at the top right takes place names or coordinates.</p>' },
+        { el: () => $('btn-toggle-lane'), title: 'Draw a road',
+          body: '<p>Click <b>Lane Tool</b>, then click on the map to place points. <b>Double-click</b> to finish the segment.</p>',
+          tryIt: 'Draw one segment', done: () => allLanes.some(l => l.isCompleted) },
+        { title: 'Select and reshape it',
+          body: '<p>Click a segment to select it. Drag the blue handles on its sides to add or remove lanes, drag its body to move it, and click a selected segment to add a node.</p><p>Hover a segment end: <b style="color:#3b82f6">+</b> adds one lane, <b style="color:#3b82f6">&#10140;</b> continues the whole road.</p>',
+          tryIt: 'Click a segment to select it', done: () => allLanes.some(l => l.isSelected) },
+        { el: () => $('lane-width-slider') && $('lane-width-slider').closest('.sb-sec'), title: 'Width and material',
+          body: '<p>The slider (or typing a width) sets the lane width. The swatches under <b>Pavement Material</b> paint whatever is selected, including segments, bike paths and intersections.</p>' },
+        { title: 'Right-click for details',
+          body: '<p>Right-click a lane to open the menu:</p><p><b>Change Marking</b> for lines, <b>Convert to</b> a turn lane, bike lane, median or crosswalk, <b>Add</b> for arrows, stop bars, yield triangles, crosswalks, signs and tram rail, <b>Apply</b> for material and width, <b>Delete</b> for the rest.</p>' },
+        { el: sec('btn-toggle-lane'), title: 'Sidewalks, bike paths and rail',
+          body: '<p><b>Sidewalk Tool</b>, <b>Bike Path Tool</b> and <b>Rail Tool</b> draw standalone strips and track. A sidewalk dragged over a road gets a crosswalk automatically.</p>' },
+        { el: () => $('btn-toggle-ix'), title: 'Intersections',
+          body: '<p><b>Intersection Tool</b>: select lane ends (Box by default), draw lane, tram and bike paths between them, then review the sidewalk corners and add crosswalks. <b>Enter</b> moves to the next step.</p><p>Once finished, <b>click an intersection to select it</b> (Shift adds more). <b>Right-click</b> it to <b>Edit</b> or <b>Delete</b>; <kbd>Del</kbd> removes the selected ones.</p>',
+          tryIt: 'Finish an intersection (optional)', done: () => !!(window.ixSerialize && window.ixSerialize().length) },
+        { el: () => $('sel-tools'), title: 'Select several things',
+          body: '<p><b>Box</b> and <b>Lasso</b> select segments, nodes and intersections together. Hold <kbd>Shift</kbd> to add. Drag any selected node to move them all; <kbd>Del</kbd> deletes, <kbd>Esc</kbd> deselects.</p>',
+          tryIt: 'Turn on Box or Lasso', done: () => typeof selTool !== 'undefined' && selTool !== 'pointer' },
+        { el: sec('lvl-down'), title: 'Levels',
+          body: '<p>Segments on different levels never form intersections, which is how you draw an overpass. Change level here or with Page Up and Page Down.</p>' },
+        { el: () => $('btn-crop'), title: 'Save a picture',
+          body: '<p><b>Crop &amp; Export Map</b> opens a crop box on the map. Drag or resize it, pick a paper ratio, set the resolution scale and press <b>Save High-Res Image</b>. The basemap and your lanes are drawn straight into the file, so it matches what you see.</p><p><b>Save</b> and <b>Load</b> keep your project as a file (' + mod + '+S, ' + mod + '+O).</p>',
+          tryIt: 'Open the crop box (Cancel Cropping closes it)', done: () => { const b = $('crop-box'); return !!b && b.style.display === 'block'; } },
+        { el: () => $('btn-undo') && $('btn-undo').closest('.sb-sec'), title: 'Undo, redo and shortcuts',
+          body: '<p><kbd>' + mod + '</kbd>+<kbd>Z</kbd> undoes and <kbd>' + mod + '</kbd>+<kbd>Y</kbd> redoes. <kbd>R</kbd> flips a lane\u2019s direction, <kbd>Esc</kbd> deselects and closes tools. The <b>Keybinds</b> list in the sidebar has the rest.</p><p>You can reopen this tour any time from <b>? Help</b>.</p>' }
+    ];
+    let spot = null, card = null, idx = 0, timer = null, openedBm = false;
+
+    function build() {
+        spot = document.createElement('div'); spot.id = 'tut-spot';
+        card = document.createElement('div'); card.id = 'tut-card'; card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'Tutorial');
+        document.body.appendChild(spot); document.body.appendChild(card);
+        card.addEventListener('click', e => {
+            const a = e.target.dataset && e.target.dataset.a; if (!a) return;
+            if (a === 'next') go(1); else if (a === 'back') go(-1); else if (a === 'skip') stop(true);
+        });
+    }
+    function render() {
+        const s = steps[idx], last = idx === steps.length - 1;
+        card.innerHTML = '<span class="tut-count">' + (idx + 1) + ' / ' + steps.length + '</span><h4>' + s.title + '</h4>' + s.body
+            + (s.tryIt ? '<div class="tut-try" id="tut-try">Try it: ' + s.tryIt + '</div>' : '')
+            + '<div class="tut-bar"><i style="width:' + ((idx + 1) / steps.length * 100) + '%"></i></div>'
+            + '<div class="tut-nav">' + (idx ? '<button type="button" data-a="back">Back</button>' : '<button type="button" class="tut-skip" data-a="skip">Skip tour</button>')
+            + (idx && !last ? '<button type="button" class="tut-skip" data-a="skip">Skip</button>' : '')
+            + '<button type="button" class="tut-next" data-a="next">' + (last ? 'Finish' : 'Next') + '</button></div>';
+        if (openedBm && s.title !== 'Pick a basemap') { $('bm-details').open = false; openedBm = false; }      // put the basemap panel back as it was
+        if (s.enter) { try { s.enter(); } catch (e) { /* ignore */ } }
+        const el = s.el && s.el(); if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ } }
+        place();
+    }
+    function place() {
+        if (!card) return;
+        const s = steps[idx], el = s.el && s.el(), vw = window.innerWidth, vh = window.innerHeight, m = 10;
+        let r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (r && (r.width < 2 || r.height < 2)) r = null;
+        const cw = card.offsetWidth, ch = card.offsetHeight;
+        let left, top;
+        if (r) {
+            const pad = 5; spot.style.display = 'block';
+            spot.style.left = (r.left - pad) + 'px'; spot.style.top = (r.top - pad) + 'px'; spot.style.width = (r.width + pad * 2) + 'px'; spot.style.height = (r.height + pad * 2) + 'px';
+            if (r.right + 14 + cw <= vw - m) { left = r.right + 14 + pad; top = r.top + r.height / 2 - ch / 2; }
+            else if (r.top - 14 - ch >= m) { left = r.left; top = r.top - ch - 14 - pad; }
+            else { left = r.left; top = r.bottom + 14 + pad; }
+        } else {
+            spot.style.display = 'none';
+            const mw = $('map-wrap'), mr = mw ? mw.getBoundingClientRect() : { left: 0, right: vw, bottom: vh };
+            left = (mr.left + mr.right) / 2 - cw / 2; top = mr.bottom - ch - 28;
+        }
+        card.style.left = Math.max(m, Math.min(left, vw - cw - m)) + 'px';
+        card.style.top = Math.max(m, Math.min(top, vh - ch - m)) + 'px';
+    }
+    function tick() {
+        if (!card) return;
+        place();
+        const s = steps[idx], t = $('tut-try'); if (!t || !s.done) return;
+        let ok = false; try { ok = !!s.done(); } catch (e) { ok = false; }
+        if (ok !== t.classList.contains('ok')) { t.classList.toggle('ok', ok); t.textContent = ok ? '\u2713 Done: ' + s.tryIt : 'Try it: ' + s.tryIt; }
+    }
+    function go(d) {
+        const n = idx + d; if (n < 0) return;
+        if (n >= steps.length) { stop(true); return; }
+        idx = n; render();
+    }
+    function stop(mark) {
+        clearInterval(timer); timer = null;
+        if (spot) spot.remove(); if (card) card.remove(); spot = card = null;
+        window.removeEventListener('resize', place);
+        if (mark) { try { localStorage.setItem('laneToolTourDone', '1'); } catch (e) { /* storage blocked */ } }
+    }
+    window.startTutorial = function () {
+        stop(false); idx = 0; build(); render();
+        timer = setInterval(tick, 350); window.addEventListener('resize', place);
+    };
 })();
 </script>
 
