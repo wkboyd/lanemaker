@@ -202,7 +202,11 @@
         .tr-panel .sb-sec { margin: 0; padding: 0; border: 0; }
         .tr-panel .tool-btn { width: 100%; }
         .tr-panel .tr-row { display: flex; gap: 6px; }
-        .tr-lang { max-height: 60vh; overflow-y: auto; width: 210px; padding: 4px; gap: 0; }
+        .tr-lang { max-height: 60vh; overflow: hidden; width: 250px; padding: 4px; gap: 0; }
+        .tr-lang .tr-list { overflow-y: auto; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-height: calc(60vh - 90px); }
+        .tr-lang .tr-search { margin: 2px 2px 6px; padding: 7px 9px; border: 1px solid #9ca3af; border-radius: 4px; background: #fff; color: #111827; font: .82rem system-ui, sans-serif; outline: none; width: calc(100% - 4px); box-sizing: border-box; }
+        .tr-lang .tr-search:focus { border-color: #2563eb; }
+        #dark-toggle:checked ~ .page-wrapper .tr-lang .tr-search { background: #111827; color: #f3f4f6; border-color: #4b5563; }
         .tr-lang button { text-align: left; padding: 7px 9px; border: 0; background: none; color: inherit; cursor: pointer; font: .82rem system-ui, sans-serif; border-radius: 4px; }
         .tr-lang button:hover { background: #eff6ff; }
         .tr-lang button.on { font-weight: 700; color: #2563eb; }
@@ -294,7 +298,7 @@
     <div class="page-wrapper">
         <aside id="custom-toolbar" class="sidebar">
             <div class="sb-head">
-                <h2>lanemaker.net</h2>
+                <h2 class="notranslate" translate="no">lanemaker.net</h2>
                 <button type="button" id="btn-help" class="tool-btn" style="width:auto;margin-left:auto;white-space:nowrap" title="Quick start and tutorial">? Help</button>
                 <label for="dark-toggle" class="tool-btn" style="width:auto;cursor:pointer">
                     <span class="toggle-text-light">Dark</span><span class="toggle-text-dark">Light</span>
@@ -4432,22 +4436,26 @@
                 setTimeout(() => { const el = mk.getElement(); if (el) el.onclick = ev => { ev.stopPropagation(); openSidewalkModal(lane, side); }; }, 50);
             });
         }
+        // the last sidewalk settings (metres) are the starting values for the next sidewalk you add
+        let swLast = null; try { swLast = JSON.parse(localStorage.getItem('laneToolSwLast') || 'null'); } catch (e) { swLast = null; }
+        if (!swLast || !(swLast.w > 0) || !(swLast.buf >= 0)) swLast = null;
         function openSidewalkModal(lane, side) {
             syncUnitsFromDropdown();
             const u = isMetric ? 'm' : 'ft', f = isMetric ? 1 : 0.3048, ex = lane.sw && lane.sw[side];
             const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px';
             const row = (label, el) => { const r = document.createElement('label'); r.className = 'fm-row'; const sp = document.createElement('span'); sp.textContent = label; r.appendChild(sp); r.appendChild(el); wrap.appendChild(r); return el; };
             const num = v => { const i = document.createElement('input'); i.type = 'number'; i.min = '0'; i.step = '0.5'; i.value = +(v).toFixed(2); return i; };
-            const buf = row('Grass buffer (' + u + ', 0 = none)', num(ex ? ex.buf / f : (isMetric ? 1.5 : 5)));
-            const wd = row('Sidewalk width (' + u + ')', num(ex ? ex.w / f : (isMetric ? 1.8 : 6)));
+            const buf = row('Grass buffer (' + u + ', 0 = none)', num(ex ? ex.buf / f : (swLast ? swLast.buf / f : (isMetric ? 1.5 : 5))));
+            const wd = row('Sidewalk width (' + u + ')', num(ex ? ex.w / f : (swLast ? swLast.w / f : (isMetric ? 1.8 : 6))));
             const bk = document.createElement('select'); [['', 'No bike lane'], ['one', 'One-way'], ['two', 'Two-way']].forEach(o => { const op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; bk.appendChild(op); });
-            bk.value = (ex && ex.bike) || ''; row('Bike lane', bk);
+            bk.value = ex ? (ex.bike || '') : ((swLast && swLast.bike) || ''); row('Bike lane', bk);
             let rm = null; if (ex) { rm = document.createElement('input'); rm.type = 'checkbox'; row('Remove sidewalk', rm); }
             openModal(ex ? 'Edit sidewalk' : 'Add sidewalk', wrap, ex ? 'Apply' : 'Add', () => {
                 if (rm && rm.checked) { saveHistoryState(); delete lane.sw[side]; if (!Object.keys(lane.sw).length) lane.sw = undefined; }
                 else {
                     const b = Math.max(0, parseFloat(buf.value) || 0) * f, w = (parseFloat(wd.value) || 0) * f; if (w <= 0) return false;
                     saveHistoryState(); lane.sw = lane.sw || {}; lane.sw[side] = { buf: b, w, bike: bk.value || null };
+                    swLast = { buf: b, w, bike: bk.value || null }; try { localStorage.setItem('laneToolSwLast', JSON.stringify(swLast)); } catch (e) { /* storage blocked */ }
                 }
                 updateLaneGraphics(); updateUndoRedoUI();
             });
@@ -6952,6 +6960,9 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         { el: () => $('ctx-flip') || null, dim: false, pos: 'bottom', title: 'Flip one lane to make it two-way',
           body: '<p>New lanes copy the direction of the lane beside them, so every road is still one-way. Make each one two-way by flipping <b>one lane</b>: <b>right-click</b> a lane and choose <b>Flip Lane</b>, or <b>hover</b> a lane and press <kbd>R</kbd>.</p><p>Tip: with a whole road selected, <kbd>R</kbd> flips <i>all</i> its lanes together, which keeps it one-way, so hover a single lane. The arrows show each lane\u2019s direction.</p>',
           tryIt: 'Make all three roads two-way', req: true, prog: () => cnt(twoWay) + ' / 3', done: () => cnt(twoWay) >= 3 },
+        { dim: false, pos: 'bottom', title: 'Add sidewalks to the roads',
+          body: '<p>Sidewalks belong to the roads, so add them <b>before</b> the intersection. <b>Click a road</b> to select it, then move the mouse beside the <b>middle</b> of the road until a blue <b style="color:#3b82f6">+</b> appears on that side. Click it, choose a grass buffer (0 = none), sidewalk width and optional bike lane, and press <b>Add</b>.</p><p>Do this on <b>both sides of all three roads</b> (six sidewalks). The dialog remembers your last settings, so the next one starts with the same width. Later you can click <b>Edit sidewalk</b> on a road to change or remove one.</p>',
+          tryIt: 'Add a sidewalk to both sides of all three roads', req: true, prog: () => cnt(l => !!(l.sw && l.sw.l && l.sw.r)) + ' / 3', done: () => cnt(l => !!(l.sw && l.sw.l && l.sw.r)) >= 3 },
         { dim: false, pos: 'bottom', title: 'Right-click for details',
           body: '<p>Right-click a lane for its menu: <b>Change Marking</b> for lines, <b>Convert to</b> a turn lane, bike lane, median or crosswalk, <b>Add</b> for arrows, stop bars, yield triangles, signs and tram rail, <b>Apply</b> for material and width, <b>Delete</b> for the rest.</p><p>Skip it for now: the intersection editor adds stop bars and edge markings for you.</p>' },
         { el: () => $('btn-toggle-ix'), dim: false, pos: 'bottom', title: 'Open the Intersection Tool',
@@ -6967,9 +6978,12 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 2: lane paths',
           body: '<p>Paths show where traffic can go from each incoming lane. Press <b>Guess</b> to draw through, left and right movements for all three approaches. You can also click a green origin dot, then each destination dot, or click a path and press <kbd>Del</kbd> to remove it. Click a path to reshape it with its blue handles.</p>',
           tryIt: 'Press Guess (six paths for a T)', req: true, prog: () => { const s = ixs(); return (s ? s.roads : 0) + ' / 6'; }, done: () => { const s = ixs(); return !!s && s.roads >= 6; } },
-        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stages 3 to 5: bike paths and sidewalks',
-          body: '<p>Click <b>Next</b> until the strip says <b>Island</b>. On the way, <b>Tram</b> only shows up if you selected rail; <b>Bike</b> and <b>Sidewalk</b> are where you draw bike crossings and crosswalks, and they detect corners automatically when the roads have sidewalks or bike strips. This example has neither, so there is nothing to do.</p>',
-          tryIt: 'Reach the Island stage', req: true, done: () => stg() >= 5 },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 4: bike paths',
+          body: '<p>(Stage 3, tram paths, only appears if you selected rail.) Bike crossings are drawn here: click a bike node, then the node it meets. Corner bike strips from sidewalk bike lanes are detected automatically. This example has none, so press <b>Next</b>.</p>',
+          tryIt: 'Press Next to reach Sidewalks', req: true, done: () => stg() >= 4 },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 5: sidewalk corners and crosswalks',
+          body: '<p>The sidewalks you added now meet round each corner of the T: the editor draws the <b>corner sidewalks</b> and a <b>crosswalk</b> across each road automatically, using each road\u2019s buffer, width and curb. <b>Re-detect corners</b> redoes them.</p><p>To add a crosswalk, click one sidewalk, then the sidewalk on the other side. <b>Right-click</b> a crosswalk to make it Continental, Ladder or Raised, or use the <b>All crosswalks</b> dropdown. Click a corner path\u2019s line to reshape it with its blue handles; the label shows the curb radius.</p><p>Press <b>Next</b> when done.</p>',
+          tryIt: 'Look over the corners, then press Next', req: true, done: () => stg() >= 5 },
         { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 6: islands',
           body: '<p>Yellow shapes are the gaps between travel paths. Choose <b>Concrete</b>, <b>Grass</b> or <b>Painted</b>, then click a gap to fill it, or use <b>Fill all</b>. Click an island again to remove it. A small T may have few or no gaps, which is fine.</p><p>Press <b>Next</b> when done.</p>',
           tryIt: 'Optional: add an island, then Next', done: () => { const s = ixs(); return stg() >= 6 || (!!s && s.islands > 0); } },
@@ -7142,16 +7156,27 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         b.addEventListener('click', () => { items.forEach(it => it.classList.remove('open')); ov.style.display = 'flex'; ov.querySelector('.sh-close').focus(); });
     })();
     // ---- translate: the page's own text is sent to Google's translation endpoint and swapped in place (originals are kept, so English restores instantly) ----
-    const LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'], ['pt', 'Português'], ['nl', 'Nederlands'], ['sv', 'Svenska'], ['pl', 'Polski'], ['cs', 'Čeština'], ['tr', 'Türkçe'], ['ru', 'Русский'], ['uk', 'Українська'], ['ar', 'العربية'], ['he', 'עברית'], ['hi', 'हिन्दी'], ['bn', 'বাংলা'], ['th', 'ไทย'], ['vi', 'Tiếng Việt'], ['id', 'Bahasa Indonesia'], ['zh-CN', '中文 (简体)'], ['zh-TW', '中文 (繁體)'], ['ja', '日本語'], ['ko', '한국어']];
+    const LANGS = [['en', 'English', 'English'], ['af', 'Afrikaans', 'Afrikaans'], ['sq', 'Shqip', 'Albanian'], ['am', 'አማርኛ', 'Amharic'], ['ar', 'العربية', 'Arabic'], ['hy', 'Հայերեն', 'Armenian'], ['as', 'অসমীয়া', 'Assamese'], ['ay', 'Aymara', 'Aymara'], ['az', 'Azərbaycan', 'Azerbaijani'], ['bm', 'Bamanankan', 'Bambara'], ['eu', 'Euskara', 'Basque'], ['be', 'Беларуская', 'Belarusian'], ['bn', 'বাংলা', 'Bengali'], ['bho', 'भोजपुरी', 'Bhojpuri'], ['bs', 'Bosanski', 'Bosnian'], ['bg', 'Български', 'Bulgarian'], ['ca', 'Català', 'Catalan'], ['ceb', 'Cebuano', 'Cebuano'], ['zh-CN', '中文 (简体)', 'Chinese Simplified'], ['zh-TW', '中文 (繁體)', 'Chinese Traditional'], ['co', 'Corsu', 'Corsican'], ['hr', 'Hrvatski', 'Croatian'], ['cs', 'Čeština', 'Czech'], ['da', 'Dansk', 'Danish'], ['dv', 'ދިވެހި', 'Dhivehi'], ['doi', 'डोगरी', 'Dogri'], ['nl', 'Nederlands', 'Dutch'], ['eo', 'Esperanto', 'Esperanto'], ['et', 'Eesti', 'Estonian'], ['ee', 'Eʋegbe', 'Ewe'], ['tl', 'Filipino', 'Filipino Tagalog'], ['fi', 'Suomi', 'Finnish'], ['fr', 'Français', 'French'], ['fy', 'Frysk', 'Frisian'], ['gl', 'Galego', 'Galician'], ['ka', 'ქართული', 'Georgian'], ['de', 'Deutsch', 'German'], ['el', 'Ελληνικά', 'Greek'], ['gn', 'Guarani', 'Guarani'], ['gu', 'ગુજરાતી', 'Gujarati'], ['ht', 'Kreyòl ayisyen', 'Haitian Creole'], ['ha', 'Hausa', 'Hausa'], ['haw', 'ʻŌlelo Hawaiʻi', 'Hawaiian'], ['he', 'עברית', 'Hebrew'], ['hi', 'हिन्दी', 'Hindi'], ['hmn', 'Hmoob', 'Hmong'], ['hu', 'Magyar', 'Hungarian'], ['is', 'Íslenska', 'Icelandic'], ['ig', 'Igbo', 'Igbo'], ['ilo', 'Ilokano', 'Ilocano'], ['id', 'Bahasa Indonesia', 'Indonesian'], ['ga', 'Gaeilge', 'Irish'], ['it', 'Italiano', 'Italian'], ['ja', '日本語', 'Japanese'], ['jv', 'Basa Jawa', 'Javanese'], ['kn', 'ಕನ್ನಡ', 'Kannada'], ['kk', 'Қазақша', 'Kazakh'], ['km', 'ខ្មែរ', 'Khmer'], ['rw', 'Kinyarwanda', 'Kinyarwanda'], ['gom', 'कोंकणी', 'Konkani'], ['ko', '한국어', 'Korean'], ['kri', 'Krio', 'Krio'], ['ku', 'Kurdî', 'Kurdish Kurmanji'], ['ckb', 'کوردی', 'Kurdish Sorani'], ['ky', 'Кыргызча', 'Kyrgyz'], ['lo', 'ລາວ', 'Lao'], ['la', 'Latina', 'Latin'], ['lv', 'Latviešu', 'Latvian'], ['ln', 'Lingála', 'Lingala'], ['lt', 'Lietuvių', 'Lithuanian'], ['lg', 'Luganda', 'Luganda'], ['lb', 'Lëtzebuergesch', 'Luxembourgish'], ['mk', 'Македонски', 'Macedonian'], ['mai', 'मैथिली', 'Maithili'], ['mg', 'Malagasy', 'Malagasy'], ['ms', 'Bahasa Melayu', 'Malay'], ['ml', 'മലയാളം', 'Malayalam'], ['mt', 'Malti', 'Maltese'], ['mi', 'Māori', 'Maori'], ['mr', 'मराठी', 'Marathi'], ['mni-Mtei', 'ꯃꯩꯇꯩꯂꯣꯟ', 'Meiteilon Manipuri'], ['lus', 'Mizo', 'Mizo'], ['mn', 'Монгол', 'Mongolian'], ['my', 'မြန်မာ', 'Myanmar Burmese'], ['ne', 'नेपाली', 'Nepali'], ['no', 'Norsk', 'Norwegian'], ['or', 'ଓଡ଼ିଆ', 'Odia Oriya'], ['om', 'Afaan Oromoo', 'Oromo'], ['ps', 'پښتو', 'Pashto'], ['fa', 'فارسی', 'Persian Farsi'], ['pl', 'Polski', 'Polish'], ['pt', 'Português', 'Portuguese'], ['pa', 'ਪੰਜਾਬੀ', 'Punjabi'], ['qu', 'Runasimi', 'Quechua'], ['ro', 'Română', 'Romanian'], ['ru', 'Русский', 'Russian'], ['sm', 'Gagana Samoa', 'Samoan'], ['sa', 'संस्कृतम्', 'Sanskrit'], ['gd', 'Gàidhlig', 'Scots Gaelic'], ['nso', 'Sepedi', 'Sepedi'], ['sr', 'Српски', 'Serbian'], ['st', 'Sesotho', 'Sesotho'], ['sn', 'chiShona', 'Shona'], ['sd', 'سنڌي', 'Sindhi'], ['si', 'සිංහල', 'Sinhala'], ['sk', 'Slovenčina', 'Slovak'], ['sl', 'Slovenščina', 'Slovenian'], ['so', 'Soomaali', 'Somali'], ['es', 'Español', 'Spanish'], ['su', 'Basa Sunda', 'Sundanese'], ['sw', 'Kiswahili', 'Swahili'], ['sv', 'Svenska', 'Swedish'], ['tg', 'Тоҷикӣ', 'Tajik'], ['ta', 'தமிழ்', 'Tamil'], ['tt', 'Татарча', 'Tatar'], ['te', 'తెలుగు', 'Telugu'], ['th', 'ไทย', 'Thai'], ['ti', 'ትግርኛ', 'Tigrinya'], ['ts', 'Xitsonga', 'Tsonga'], ['tr', 'Türkçe', 'Turkish'], ['tk', 'Türkmen', 'Turkmen'], ['ak', 'Twi', 'Twi Akan'], ['uk', 'Українська', 'Ukrainian'], ['ur', 'اردو', 'Urdu'], ['ug', 'ئۇيغۇرچە', 'Uyghur'], ['uz', 'Oʻzbek', 'Uzbek'], ['vi', 'Tiếng Việt', 'Vietnamese'], ['cy', 'Cymraeg', 'Welsh'], ['xh', 'isiXhosa', 'Xhosa'], ['yi', 'ייִדיש', 'Yiddish'], ['yo', 'Yorùbá', 'Yoruba'], ['zu', 'isiZulu', 'Zulu']];
     let cur = 'en';
     try { cur = localStorage.getItem('laneToolLang') || 'en'; } catch (e) { /* storage blocked */ }
     if (!LANGS.some(l => l[0] === cur)) cur = 'en';
     const panel = $('tr-lang-panel');
+    const srch = document.createElement('input');
+    srch.type = 'search'; srch.className = 'tr-search'; srch.placeholder = 'Search languages\u2026'; srch.setAttribute('aria-label', 'Search languages'); srch.autocomplete = 'off'; srch.spellcheck = false;
+    const listEl = document.createElement('div'); listEl.className = 'tr-list';
+    const noteEl = document.createElement('div'); noteEl.className = 'tr-note'; noteEl.textContent = 'Page text is sent to Google Translate.';
+    ['keydown', 'keyup', 'keypress'].forEach(ev => srch.addEventListener(ev, e => { e.stopPropagation(); if (ev === 'keydown' && e.key === 'Escape') { srch.value = ''; paint(); } if (ev === 'keydown' && e.key === 'Enter') { const f = listEl.querySelector('button'); if (f) f.click(); } }));
+    srch.addEventListener('input', () => paint());
+    panel.appendChild(srch); panel.appendChild(listEl); panel.appendChild(noteEl);
+    const norm = x => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     function paint() {
-        panel.innerHTML = '';
-        LANGS.forEach(([c, n]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; if (c === cur) b.className = 'on'; b.addEventListener('click', () => { pick(c); }); panel.appendChild(b); });
-        const f = document.createElement('div'); f.className = 'tr-note'; f.textContent = 'Page text is sent to Google Translate.'; panel.appendChild(f);
+        const q = norm(srch.value.trim());
+        listEl.innerHTML = '';
+        const rows = LANGS.filter(([c, n, e]) => !q || norm(n).includes(q) || norm(e).includes(q) || c.toLowerCase() === q);
+        rows.forEach(([c, n, e]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = (n === e || c === 'en') ? n : n + ' \u00b7 ' + e; if (c === cur) b.className = 'on'; b.addEventListener('click', () => { srch.value = ''; pick(c); }); listEl.appendChild(b); });
+        if (!rows.length) { const d = document.createElement('div'); d.className = 'tr-note'; d.textContent = 'No languages match.'; listEl.appendChild(d); }
     }
+    $('tr-lang-btn').addEventListener('click', () => setTimeout(() => { if ($('tr-lang').classList.contains('open')) { srch.focus(); } }, 30));
     function note(t) { try { showToast(t); } catch (e) { /* no toast */ } }
 
     const SKIP = '.notranslate,[translate="no"],script,style,textarea,noscript,svg,canvas,kbd,.leaflet-pane,.leaflet-control-attribution,#tr-lang-panel';
@@ -7190,10 +7215,11 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         return items;
     }
     async function fetchBatch(texts, tl) {
+        texts = texts.map(t => t.replace(/lanemaker\.net/gi, 'LNMKR'));   // keep the site name untranslated
         const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&dt=t&tl=' + encodeURIComponent(tl) + '&q=' + encodeURIComponent(texts.join('\n'));
         const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
-        const out = (j[0] || []).map(s => s[0] || '').join('').split('\n').map(s => s.trim());
+        const out = (j[0] || []).map(s => s[0] || '').join('').split('\n').map(s => s.trim().replace(/LNMKR/gi, 'lanemaker.net'));
         return out.length === texts.length ? out : null;
     }
     const inflight = new Map();
@@ -7260,8 +7286,7 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
                 if (myGen !== gen) return;
                 applyItems(items, map_);
             }
-            if (myGen === gen && document.title === origTitle && hasLetters(origTitle)) { const tt = await translateTexts([origTitle], tl); if (myGen === gen && tt.get(origTitle)) document.title = tt.get(origTitle); }
-            failed = false;
+                        failed = false;
         } catch (e) {
             if (myGen === gen && !failed) { failed = true; note('Translation failed (' + (e && e.message || 'network') + '). Check your connection or ad blocker, then try again.'); }
             if (myGen === gen) { restore(); cur = 'en'; try { localStorage.setItem('laneToolLang', 'en'); } catch (e2) { /* ignore */ } paint(); }
