@@ -209,11 +209,6 @@
         #dark-toggle:checked ~ .page-wrapper .tr-btn, #dark-toggle:checked ~ .page-wrapper .tr-panel { background: #1f2937; color: #f3f4f6; border-color: #4b5563; }
         #dark-toggle:checked ~ .page-wrapper .tr-btn:hover, #dark-toggle:checked ~ .page-wrapper .tr-item.open > .tr-btn, #dark-toggle:checked ~ .page-wrapper .tr-lang button:hover { background: #374151; }
         body.exporting #tr-bar { display: none !important; }
-        /* Google Translate runs hidden: only our own menu shows */
-        #gt-el { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px; overflow: hidden; }
-        .goog-te-banner-frame, .skiptranslate > iframe.goog-te-banner-frame { display: none !important; }
-        body { top: 0 !important; }
-        #goog-gt-tt, .goog-tooltip, .goog-tooltip:hover { display: none !important; }
         .goog-text-highlight { background: none !important; box-shadow: none !important; }
         #search-wrap { position: absolute; top: 10px; right: 10px; width: min(360px, calc(100% - 80px)); z-index: 1600; font-size: .82rem; }
         #search-box { display: flex; align-items: stretch; background: #fff; border: 1px solid #9ca3af; border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,.4); overflow: hidden; }
@@ -277,6 +272,10 @@
         #tut-card .tut-nav .tut-next:hover { background: #1d4ed8; }
         #tut-card .tut-nav .tut-skip { border: none; padding: 5px 2px; opacity: .7; text-decoration: underline; }
         #tut-card kbd { font: 600 .72rem system-ui, sans-serif; padding: 0 4px; border: 1px solid #9ca3af; border-radius: 3px; background: rgba(127,127,127,.15); }
+        #tut-card h4 { cursor: move; touch-action: none; padding-right: 44px; }
+        #tut-card ol { margin: 2px 0 6px; padding-left: 18px; }
+        #tut-card .tut-nav .tut-next.soft { background: transparent; color: inherit; border-color: #9ca3af; font-weight: 400; }
+        .tr-lang .tr-note { padding: 6px 9px 3px; font: .68rem system-ui, sans-serif; opacity: .65; }
         @media (prefers-reduced-motion: reduce) { #tut-spot { transition: none; } }
     </style>
 </head>
@@ -401,16 +400,12 @@
             <div id="intro-box" class="intro-box" style="display:none">
                 <button id="intro-x" type="button" title="Close">&times;</button>
                 <b class="intro-title">Quick start</b>
-                <p class="intro-lead">Draw roads lane by lane on a real map, then save a picture of it.</p>
+                <p class="intro-lead">Draw roads lane by lane on a real map, then export a picture.</p>
                 <ul>
-                    <li><b>Lane Tool</b>: click to place points, double-click to finish. Click a segment to select it, then drag the blue handles on its sides to add or remove lanes.</li>
-                    <li>Hover a segment end: <b style="color:#3b82f6">+</b> adds one lane, <b style="color:#3b82f6">&#10140;</b> continues the whole road.</li>
-                    <li><b>Right-click</b> a lane for markings, material, crosswalks, stop bars, arrows, signs, medians, bike lanes and tram rail.</li>
-                    <li><b>Sidewalk</b>, <b>Bike Path</b> and <b>Rail</b> tools draw standalone strips and track.</li>
-                    <li><b>Intersection Tool</b>: join lane ends with paths, curb returns, crosswalks and concrete islands. Click an intersection to select it; right-click it to edit or delete.</li>
-                    <li><b>Box / Lasso</b> select lanes, nodes and intersections (Shift adds). Del deletes, Esc deselects, R flips a lane (also in the right-click menu).</li>
-                    <li>New lanes start on any existing end, or on the middle of a segment, which is broken there. The <b>European bike paths</b> toggle makes red the default bike material.</li>
-                    <li><b>Crop &amp; Export Map</b> saves a PNG. <b>Save</b> keeps your project as a file.</li>
+                    <li><b>Lane Tool</b>: click points, double-click to finish. Select a segment and drag its blue handles to add lanes.</li>
+                    <li><b>Right-click</b> for markings, arrows, signs and crosswalks. <b>R</b> flips a lane.</li>
+                    <li><b>Intersection Tool</b> joins lane ends; <b>Box / Lasso</b> multi-select.</li>
+                    <li><b>Share</b> exports a PNG; <b>Save</b> keeps the project.</li>
                 </ul>
                 <div class="intro-actions">
                     <button id="intro-tour" type="button" class="intro-go">Take the tutorial</button>
@@ -422,7 +417,6 @@
                 <div class="tr-item" id="tr-file"><button type="button" class="tr-btn" id="tr-file-btn" title="Save or load your project">&#128190; Save / Load <span class="car">&#9660;</span></button><div class="tr-panel" id="tr-file-panel"></div></div>
                 <div class="tr-item" id="tr-lang"><button type="button" class="tr-btn" id="tr-lang-btn" title="Translate this site" aria-label="Translate this site"><span style="font-size:1rem;line-height:1">A</span><span style="font-size:.95rem;line-height:1">&#25991;</span></button><div class="tr-panel tr-lang notranslate" id="tr-lang-panel" translate="no"></div></div>
             </div>
-            <div id="gt-el" class="notranslate" translate="no"></div>
             <div id="search-wrap">
                 <div id="search-box">
                     <input id="search-in" type="text" placeholder="Search places or coordinates..." autocomplete="off" spellcheck="false">
@@ -6790,6 +6784,7 @@ $('ctx-ix-delfill').addEventListener('click',()=>{ctxHide();const r=window.__rig
  r.x.islands=(r.x.islands||[]).filter(q=>q!==r.is);if(!r.x.islands.length&&!r.x.conns.length)allIx=allIx.filter(q=>q!==r.x);
  window.__rightIsl=null;window.__rightIx=null;updateLaneGraphics();updateUndoRedoUI();showToast('Fill area deleted');});
 window.ixHasSel=()=>allIx.some(x=>x.isSelected);
+window.ixState=()=>(on&&st)?{stage:st.stage,sel:st.sel.size,roads:st.conns.filter(c=>c.kind==='road').length,islands:(st.islands||[]).length,edit:!!st.edit}:null;
 window.ixSelected=()=>allIx.filter(x=>x.isSelected);
 window.ixClearSel=()=>{let ch=false;allIx.forEach(x=>{if(x.isSelected){x.isSelected=false;ch=true;}});return ch;};
 window.ixDeleteSel=()=>{const n=allIx.length;allIx=allIx.filter(x=>!x.isSelected);return n-allIx.length;};
@@ -6878,49 +6873,121 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
 })();
 </script>
 <script>
-// ---- Tutorial walkthrough: a short guided tour of the real controls. Opened from the intro card or the "? Help" button. ----
+// ---- Tutorial walkthrough: guided tour of the real controls, including building a T intersection. Opened from the intro card or "? Help". ----
 (function tutorial() {
     const $ = id => document.getElementById(id);
     const mod = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '\u2318' : 'Ctrl';
     const sec = id => () => { const e = $(id); return e && e.closest('.sb-sec'); };
+    const ORD = ['sel', 'road', 'tram', 'bike', 'walk', 'island', 'stop', 'mark'];
+    const ixs = () => { try { return window.ixState ? window.ixState() : null; } catch (e) { return null; } };
+    const stg = () => { const s = ixs(); return s ? ORD.indexOf(s.stage) : -1; };
+    const ixPanel = () => document.querySelector('.ix-panel');
+
+    // ---- the example: three roads that meet at one point ----
+    let base = null, guide = null, gPts = null;
+    const arms = () => base ? allLanes.filter(l => l.isCompleted && l.points && l.points.length >= 2 && !base.has(l.id)) : [];
+    const lanes2 = l => (l.totalLaneCount || 1) === 2;
+    const twoWay = l => lanes2(l) && l.dirs && l.dirs.length === 2 && l.dirs[0] !== l.dirs[1];
+    const cnt = f => Math.min(3, arms().filter(f).length);
+    function junction() {
+        const pts = []; arms().forEach(l => { pts.push(l.points[0], l.points[l.points.length - 1]); });
+        let best = null, bn = 0;
+        pts.forEach(p => { const n = pts.filter(q => map.distance(p, q) < 2).length; if (n > bn) { bn = n; best = p; } });
+        return best && bn >= 2 ? L.latLng(best.lat, best.lng) : null;
+    }
+    function clearGuide() { if (guide) { guide.remove(); guide = null; } }
+    function tag(ll, text, color) {
+        return L.marker(ll, { interactive: false, keyboard: false, icon: L.divIcon({ className: '', iconSize: [0, 0],
+            html: '<div style="transform:translate(-50%,-135%);white-space:nowrap;background:' + color + ';color:#fff;font:600 11px system-ui,sans-serif;padding:2px 7px;border-radius:9px;box-shadow:0 1px 4px rgba(0,0,0,.5)">' + text + '</div>' }) });
+    }
+    function showGuide(kind) {
+        clearGuide(); guide = L.layerGroup().addTo(map);
+        if (kind === 'draw') {
+            if (!gPts) {
+                const sz = map.getSize(), cx = sz.x / 2, cy = sz.y * 0.4, R = 110, f = (x, y) => map.containerPointToLatLng([x, y]);
+                gPts = { c: f(cx, cy), w: f(cx - R, cy), e: f(cx + R, cy), s: f(cx, cy + R) };
+            }
+            [gPts.w, gPts.e, gPts.s].forEach(p => L.polyline([gPts.c, p], { color: '#f59e0b', weight: 3, dashArray: '7,7', interactive: false }).addTo(guide));
+            L.circleMarker(gPts.c, { radius: 8, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, interactive: false }).addTo(guide);
+            [gPts.w, gPts.e, gPts.s].forEach(p => L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: '#f59e0b', fillOpacity: 1, interactive: false }).addTo(guide));
+            tag(gPts.c, 'Start all three roads here', '#d97706').addTo(guide);
+            tag(gPts.w, 'West', '#92400e').addTo(guide); tag(gPts.e, 'East', '#92400e').addTo(guide); tag(gPts.s, 'South', '#92400e').addTo(guide);
+        } else if (kind === 'select') {
+            const j = junction() || (gPts && gPts.c); if (!j) return;
+            const p = map.latLngToContainerPoint(j), q = (x, y) => map.containerPointToLatLng([p.x + x, p.y + y]);
+            L.rectangle(L.latLngBounds(q(-48, -48), q(48, 48)), { color: '#3b82f6', weight: 2, dashArray: '6,5', fillOpacity: .06, interactive: false }).addTo(guide);
+            tag(q(0, -48), 'Drag a box around this junction', '#2563eb').addTo(guide);
+        }
+    }
+
     const steps = [
         { title: 'Welcome',
-          body: '<p>This tour walks through drawing a road, finishing an intersection and saving a picture. Every highlighted control is the real one, so you can try it as you go.</p><p>Use <b>Next</b> whenever you are ready; nothing here changes your work unless you do it yourself.</p>' },
+          body: '<p>This tour has you build a <b>T intersection</b> from three two-way, two-lane roads, then finish it in the intersection editor. After that it covers the other tools. Every highlighted control is the real one.</p><p>Use <b>Next</b> when ready; steps marked <i>Try it</i> turn green when you have done them (or press <b>Skip step</b>). Drag a card by its title to move it out of the way.</p>' },
         { el: () => $('bm-details'), enter: () => { const d = $('bm-details'); if (!d.open) { d.open = true; openedBm = true; } }, title: 'Pick a basemap',
-          body: '<p>Choose Satellite or OSM (the arrow beside each one lists more maps), and use the opacity slider to fade the map behind your drawing. The search bar at the top right takes place names or coordinates.</p>' },
-        { el: () => $('btn-toggle-lane'), title: 'Draw a road',
-          body: '<p>Click <b>Lane Tool</b>, then click on the map to place points. <b>Double-click</b> to finish the segment.</p>',
-          tryIt: 'Draw one segment', done: () => allLanes.some(l => l.isCompleted) },
-        { title: 'Select and reshape it',
-          body: '<p>Click a segment to select it. Drag the blue handles on its sides to add or remove lanes, drag its body to move it, and click a selected segment to add a node.</p><p>Hover a segment end: <b style="color:#3b82f6">+</b> adds one lane, <b style="color:#3b82f6">&#10140;</b> continues the whole road.</p>',
-          tryIt: 'Click a segment to select it', done: () => allLanes.some(l => l.isSelected) },
-        { el: () => $('lane-width-slider') && $('lane-width-slider').closest('.sb-sec'), title: 'Width and material',
-          body: '<p>The slider (or typing a width) sets the lane width. The swatches under <b>Pavement Material</b> paint whatever is selected, including segments, bike paths and intersections.</p>' },
-        { title: 'Right-click for details',
-          body: '<p>Right-click a lane to open the menu:</p><p><b>Change Marking</b> for lines, <b>Convert to</b> a turn lane, bike lane, median or crosswalk, <b>Add</b> for arrows, stop bars, yield triangles, crosswalks, signs and tram rail, <b>Apply</b> for material and width, <b>Delete</b> for the rest.</p>' },
-        { title: 'Flip a lane',
-          body: '<p>A lane pointing the wrong way? <b>Right-click</b> it and choose <b>Flip Lane</b>, or hover it and press <kbd>R</kbd>. With a whole segment selected, <kbd>R</kbd> flips every lane in it.</p>' },
+          body: '<p>Choose Satellite or OSM (the arrow beside each lists more maps) and fade the map with the opacity slider. The search bar takes place names or coordinates: <b>pan to a spot with room for a small junction</b> before the next step.</p>' },
+        { el: () => $('btn-toggle-lane'), dim: false, pos: 'bottom', guide: 'draw', title: 'Draw three roads',
+          enter: () => { if (!base) base = new Set(allLanes.map(l => l.id)); try { if (map.getZoom() < 17) map.setZoom(18); } catch (e) { /* ignore */ } showGuide('draw'); },
+          body: '<p>Click <b>Lane Tool</b>, then draw <b>three separate roads</b> along the dashed lines. For each one: click the <b>orange dot</b>, click the far dot, then <b>double-click</b> to finish. Later roads snap onto the first one\u2019s end.</p><p>If the tool switches off after a segment, click <b>Lane Tool</b> again. Each road starts as a single one-way lane.</p>',
+          tryIt: 'Draw the west, east and south roads', req: true, prog: () => cnt(() => true) + ' / 3', done: () => cnt(() => true) >= 3 },
+        { dim: false, pos: 'bottom', title: 'Add a second lane',
+          body: '<p>Click a road to select it. Blue handles appear on its sides; <b>drag one outward</b> to add a lane (drag it back to remove one). Do this on all three roads so each has <b>two lanes</b>.</p><p>Other ways to add lanes: hover a segment end and click <b style="color:#3b82f6">+</b>, or <b style="color:#3b82f6">&#10140;</b> to continue the whole road. Dragging the body moves a road; clicking a selected road adds a node.</p>',
+          tryIt: 'Give each of the three roads two lanes', req: true, prog: () => cnt(lanes2) + ' / 3', done: () => cnt(lanes2) >= 3 },
+        { el: () => $('ctx-flip') || null, dim: false, pos: 'bottom', title: 'Flip one lane to make it two-way',
+          body: '<p>New lanes copy the direction of the lane beside them, so every road is still one-way. Make each one two-way by flipping <b>one lane</b>: <b>right-click</b> a lane and choose <b>Flip Lane</b>, or <b>hover</b> a lane and press <kbd>R</kbd>.</p><p>Tip: with a whole road selected, <kbd>R</kbd> flips <i>all</i> its lanes together, which keeps it one-way, so hover a single lane. The arrows show each lane\u2019s direction.</p>',
+          tryIt: 'Make all three roads two-way', req: true, prog: () => cnt(twoWay) + ' / 3', done: () => cnt(twoWay) >= 3 },
+        { dim: false, pos: 'bottom', title: 'Right-click for details',
+          body: '<p>Right-click a lane for its menu: <b>Change Marking</b> for lines, <b>Convert to</b> a turn lane, bike lane, median or crosswalk, <b>Add</b> for arrows, stop bars, yield triangles, signs and tram rail, <b>Apply</b> for material and width, <b>Delete</b> for the rest.</p><p>Skip it for now: the intersection editor adds stop bars and edge markings for you.</p>' },
+        { el: () => $('btn-toggle-ix'), dim: false, pos: 'bottom', title: 'Open the Intersection Tool',
+          body: '<p>The roads are in place, so now we join them. Click <b>Intersection Tool</b>. A control strip appears at the top of the map and walks you through <b>eight stages</b>; we will do the ones this junction needs.</p>',
+          tryIt: 'Click Intersection Tool', req: true, done: () => !!ixs() },
+        { el: ixPanel, dim: false, pos: 'bottom', guide: 'select', title: 'Stage 1: select lane ends',
+          enter: () => showGuide('select'),
+          body: '<p>The dots are lane ends. <b>Box</b> is the default mode (<b>Lasso</b> and <b>Click</b> work too). Drag a box around the junction so you pick up the <b>six ends</b> there (two per road) and none of the far ends. Shift-drag removes dots.</p><p>When the strip says <b>6 picked</b>, continue.</p>',
+          tryIt: 'Pick the six junction ends', req: true, done: () => { const s = ixs(); return !!s && s.stage === 'sel' ? s.sel === 6 : stg() >= 1; } },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Click Next in the strip',
+          body: '<p>Click <b>Next &rarr;</b> in the strip at the top of the map (or press <kbd>Enter</kbd>) to move to <b>Stage 2: Lane paths</b>.</p>',
+          tryIt: 'Advance to Lane paths', req: true, done: () => stg() >= 1 },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 2: lane paths',
+          body: '<p>Paths show where traffic can go from each incoming lane. Press <b>Guess</b> to draw through, left and right movements for all three approaches. You can also click a green origin dot, then each destination dot, or click a path and press <kbd>Del</kbd> to remove it. Click a path to reshape it with its blue handles.</p>',
+          tryIt: 'Press Guess (six paths for a T)', req: true, prog: () => { const s = ixs(); return (s ? s.roads : 0) + ' paths'; }, done: () => { const s = ixs(); return !!s && s.roads >= 6; } },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stages 3 to 5: bike paths and sidewalks',
+          body: '<p>Click <b>Next</b> until the strip says <b>Island</b>. On the way, <b>Tram</b> only shows up if you selected rail; <b>Bike</b> and <b>Sidewalk</b> are where you draw bike crossings and crosswalks, and they detect corners automatically when the roads have sidewalks or bike strips. This example has neither, so there is nothing to do.</p>',
+          tryIt: 'Reach the Island stage', req: true, done: () => stg() >= 5 },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 6: islands',
+          body: '<p>Yellow shapes are the gaps between travel paths. Choose <b>Concrete</b>, <b>Grass</b> or <b>Painted</b>, then click a gap to fill it, or use <b>Fill all</b>. Click an island again to remove it. A small T may have few or no gaps, which is fine.</p><p>Press <b>Next</b> when done.</p>',
+          tryIt: 'Optional: add an island, then Next', done: () => { const s = ixs(); return stg() >= 6 || (!!s && s.islands > 0); } },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 7: stop bars',
+          body: '<p>Stop bars start where the lanes diverge. Drag the <b>blue square</b> to slide a whole approach, or an <b>orange dot</b> to move one lane. Click an orange dot to remove or restore a bar, and right-click a bar to turn it into yield triangles.</p><p>Press <b>Next</b> to continue.</p>',
+          tryIt: 'Reach Stage 8', done: () => stg() >= 7 },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Stage 8: edge markings, then Finish',
+          body: '<p>Pick a line type, number, thickness and colour, then click a path\u2019s dotted edge to mark it. Markings stop at concrete.</p><p>Press <b>Finish &#10003;</b> in the strip to create the intersection. <b>Back</b> returns to any earlier stage.</p>',
+          tryIt: 'Press Finish', req: true, done: () => !!(window.ixSerialize && window.ixSerialize().length) && !ixs() },
+        { dim: false, pos: 'bottom', title: 'Select, edit and delete',
+          body: '<p>A finished intersection is its own object. <b>Click</b> it to select (Shift adds more), <kbd>Del</kbd> removes the selection, and <b>right-click</b> it for <b>Edit Intersection&hellip;</b> or <b>Delete</b>.</p><p>Let\u2019s reopen the editor: right-click the junction and choose <b>Edit Intersection&hellip;</b>.</p>',
+          tryIt: 'Reopen the editor from the right-click menu', req: true, done: () => { const s = ixs(); return !!s && s.edit; } },
+        { el: ixPanel, dim: false, pos: 'bottom', title: 'Editing keeps your work',
+          body: '<p>The editor reopens on the same paths, islands and stop bars. Use <b>Back</b> and <b>Next</b> to change any stage, then <b>Finish</b> to save the changes. <b>Cancel</b> keeps the old version, and <b>Delete intersection</b> removes it.</p>',
+          tryIt: 'Press Finish or Cancel', req: true, done: () => !ixs() },
         { title: 'Join from anywhere',
-          body: '<p>A new lane (or sidewalk, bike path, rail) can start on the end of any existing one. A lane can also start or end on the <b>middle</b> of another lane: that lane is broken there so the join is flush. Hold <kbd>Alt</kbd> to place a point without snapping.</p>' },
+          body: '<p>A new lane (or sidewalk, bike path, rail) can start on the end of any existing one. It can also start or end on the <b>middle</b> of another lane: that lane is broken there so the join is flush. Hold <kbd>Alt</kbd> to place a point without snapping.</p>' },
         { el: sec('btn-toggle-lane'), title: 'Sidewalks, bike paths and rail',
-          body: '<p><b>Sidewalk Tool</b>, <b>Bike Path Tool</b> and <b>Rail Tool</b> draw standalone strips and track. A sidewalk dragged over a road gets a crosswalk automatically.</p>' },
-        { el: () => $('btn-toggle-ix'), title: 'Intersections',
-          body: '<p><b>Intersection Tool</b>: select lane ends (Box by default), draw lane, tram and bike paths between them, then review the sidewalk corners and add crosswalks. <b>Enter</b> moves to the next step.</p><p>The last step lists the gaps between travel paths in yellow: click one to make it a <b>concrete island</b>, or use <b>Fill all</b>.</p><p>Once finished, <b>click an intersection to select it</b> (Shift adds more). <b>Right-click</b> it to <b>Edit</b> or <b>Delete</b>; <kbd>Del</kbd> removes the selected ones.</p>',
-          tryIt: 'Finish an intersection (optional)', done: () => !!(window.ixSerialize && window.ixSerialize().length) },
+          body: '<p><b>Sidewalk Tool</b>, <b>Bike Path Tool</b> and <b>Rail Tool</b> draw standalone strips and track. A sidewalk dragged over a road gets a crosswalk automatically; with sidewalks in place, the intersection editor also builds the corner paths and crosswalks.</p>' },
+        { el: () => $('lane-width-slider') && $('lane-width-slider').closest('.sb-sec'), title: 'Width and material',
+          body: '<p>The slider (or typing a width) sets lane width. The swatches under <b>Pavement Material</b> paint whatever is selected, including segments, bike paths and intersections.</p>' },
         { el: () => $('sel-tools'), title: 'Select several things',
           body: '<p><b>Box</b> and <b>Lasso</b> select segments, nodes and intersections together. Hold <kbd>Shift</kbd> to add. Drag any selected node to move them all; <kbd>Del</kbd> deletes, <kbd>Esc</kbd> deselects.</p>',
           tryIt: 'Turn on Box or Lasso', done: () => typeof selTool !== 'undefined' && selTool !== 'pointer' },
         { el: () => $('tog-euro') && $('tog-euro').closest('label'), title: 'European bike paths',
-          body: '<p>Tick this to make <b>red</b> the default bike material (existing bike paths change too) and to draw crossings as a solid red fill instead of green with dotted white lines. Painted bike lanes keep their colour up to the curb.</p>' },
+          body: '<p>Tick this to make <b>red</b> the default bike material (existing bike paths change too) and to draw crossings as a solid red fill instead of green with dotted white lines.</p>' },
         { el: sec('lvl-down'), title: 'Levels',
           body: '<p>Segments on different levels never form intersections, which is how you draw an overpass. Change level here or with Page Up and Page Down.</p>' },
         { el: () => $('btn-crop'), enter: () => { if (window.__openTr) window.__openTr('share'); }, title: 'Save a picture',
-          body: '<p><b>Crop &amp; Export Map</b> opens a crop box on the map. Drag or resize it, pick a paper ratio, set the resolution scale and press <b>Save High-Res Image</b>. The basemap and your lanes are drawn straight into the file, so it matches what you see.</p><p><b>Save</b> and <b>Load</b> keep your project as a file (' + mod + '+S, ' + mod + '+O).</p>',
+          body: '<p><b>Crop &amp; Export Map</b> opens a crop box. Drag or resize it, pick a paper ratio and resolution, then press <b>Save High-Res Image</b>. The basemap and your lanes are drawn straight into the file.</p><p><b>Save</b> and <b>Load</b> keep your project as a file (' + mod + '+S, ' + mod + '+O).</p>',
           tryIt: 'Open the crop box (Cancel Cropping closes it)', done: () => { const b = $('crop-box'); return !!b && b.style.display === 'block'; } },
         { el: () => $('btn-undo') && $('btn-undo').closest('.sb-sec'), title: 'Undo, redo and shortcuts',
-          body: '<p><kbd>' + mod + '</kbd>+<kbd>Z</kbd> undoes and <kbd>' + mod + '</kbd>+<kbd>Y</kbd> redoes. <kbd>R</kbd> flips a lane\u2019s direction, <kbd>Esc</kbd> deselects and closes tools. The <b>Keybinds</b> list in the sidebar has the rest.</p><p>You can reopen this tour any time from <b>? Help</b>.</p>' }
+          body: '<p><kbd>' + mod + '</kbd>+<kbd>Z</kbd> undoes and <kbd>' + mod + '</kbd>+<kbd>Y</kbd> redoes. <kbd>R</kbd> flips a lane, <kbd>Esc</kbd> deselects and closes tools. The <b>Keybinds</b> list in the sidebar has the rest.</p><p>Reopen this tour any time from <b>? Help</b>.</p>' }
     ];
-    let spot = null, card = null, idx = 0, timer = null, openedBm = false;
+    let spot = null, card = null, idx = 0, timer = null, openedBm = false, userPos = null;
 
     function build() {
         spot = document.createElement('div'); spot.id = 'tut-spot';
@@ -6930,19 +6997,28 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
             const a = e.target.dataset && e.target.dataset.a; if (!a) return;
             if (a === 'next') go(1); else if (a === 'back') go(-1); else if (a === 'skip') stop(true);
         });
+        card.addEventListener('pointerdown', e => {      // drag the card by its title
+            if (!e.target.closest || !e.target.closest('h4')) return;
+            const r = card.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+            const mv = ev => { userPos = { left: ev.clientX - dx, top: ev.clientY - dy }; place(); };
+            const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); e.preventDefault();
+        });
     }
+    function tryText(s, ok) { return (ok ? '\u2713 Done: ' : 'Try it: ') + s.tryIt + (s.prog && !ok ? ' (' + s.prog() + ')' : ''); }
     function render() {
         const s = steps[idx], last = idx === steps.length - 1;
-        card.innerHTML = '<span class="tut-count">' + (idx + 1) + ' / ' + steps.length + '</span><h4>' + s.title + '</h4>' + s.body
-            + (s.tryIt ? '<div class="tut-try" id="tut-try">Try it: ' + s.tryIt + '</div>' : '')
+        card.innerHTML = '<span class="tut-count">' + (idx + 1) + ' / ' + steps.length + '</span><h4 title="Drag to move">' + s.title + '</h4>' + s.body
+            + (s.tryIt ? '<div class="tut-try" id="tut-try">' + tryText(s, false) + '</div>' : '')
             + '<div class="tut-bar"><i style="width:' + ((idx + 1) / steps.length * 100) + '%"></i></div>'
             + '<div class="tut-nav">' + (idx ? '<button type="button" data-a="back">Back</button>' : '<button type="button" class="tut-skip" data-a="skip">Skip tour</button>')
-            + (idx && !last ? '<button type="button" class="tut-skip" data-a="skip">Skip</button>' : '')
-            + '<button type="button" class="tut-next" data-a="next">' + (last ? 'Finish' : 'Next') + '</button></div>';
+            + (idx && !last ? '<button type="button" class="tut-skip" data-a="skip">Skip tour</button>' : '')
+            + '<button type="button" class="tut-next' + (s.req ? ' soft' : '') + '" data-a="next">' + (s.req ? 'Skip step' : (last ? 'Finish' : 'Next')) + '</button></div>';
+        clearGuide();
         if (openedBm && s.title !== 'Pick a basemap') { $('bm-details').open = false; openedBm = false; }      // put the basemap panel back as it was
         if (s.enter) { try { s.enter(); } catch (e) { /* ignore */ } }
         const el = s.el && s.el(); if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { /* ignore */ } }
-        place();
+        place(); tick();
     }
     function place() {
         if (!card) return;
@@ -6951,26 +7027,34 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         if (r && (r.width < 2 || r.height < 2)) r = null;
         const cw = card.offsetWidth, ch = card.offsetHeight;
         let left, top;
+        const bottom = () => { const mw = $('map-wrap'), mr = mw ? mw.getBoundingClientRect() : { left: 0, right: vw, bottom: vh }; left = (mr.left + mr.right) / 2 - cw / 2; top = mr.bottom - ch - 28; };
         if (r) {
             const pad = 5; spot.style.display = 'block';
+            spot.style.boxShadow = s.dim === false ? 'none' : '';
             spot.style.left = (r.left - pad) + 'px'; spot.style.top = (r.top - pad) + 'px'; spot.style.width = (r.width + pad * 2) + 'px'; spot.style.height = (r.height + pad * 2) + 'px';
-            if (r.right + 14 + cw <= vw - m) { left = r.right + 14 + pad; top = r.top + r.height / 2 - ch / 2; }
+            if (s.pos === 'bottom') bottom();
+            else if (r.right + 14 + cw <= vw - m) { left = r.right + 14 + pad; top = r.top + r.height / 2 - ch / 2; }
             else if (r.top - 14 - ch >= m) { left = r.left; top = r.top - ch - 14 - pad; }
             else { left = r.left; top = r.bottom + 14 + pad; }
         } else {
-            spot.style.display = 'none';
-            const mw = $('map-wrap'), mr = mw ? mw.getBoundingClientRect() : { left: 0, right: vw, bottom: vh };
-            left = (mr.left + mr.right) / 2 - cw / 2; top = mr.bottom - ch - 28;
+            spot.style.display = 'none'; bottom();
         }
+        if (userPos) { left = userPos.left; top = userPos.top; }
         card.style.left = Math.max(m, Math.min(left, vw - cw - m)) + 'px';
         card.style.top = Math.max(m, Math.min(top, vh - ch - m)) + 'px';
     }
     function tick() {
         if (!card) return;
         place();
-        const s = steps[idx], t = $('tut-try'); if (!t || !s.done) return;
+        const s = steps[idx];
+        if (s.guide === 'draw' && guide && arms().length >= 3) clearGuide();
+        const t = $('tut-try'); if (!t || !s.done) return;
         let ok = false; try { ok = !!s.done(); } catch (e) { ok = false; }
-        if (ok !== t.classList.contains('ok')) { t.classList.toggle('ok', ok); t.textContent = ok ? '\u2713 Done: ' + s.tryIt : 'Try it: ' + s.tryIt; }
+        t.classList.toggle('ok', ok); t.textContent = tryText(s, ok);
+        if (s.req) {
+            const nb = card.querySelector('.tut-next'), last = idx === steps.length - 1;
+            if (nb) { nb.classList.toggle('soft', !ok); nb.textContent = ok ? (last ? 'Finish' : 'Next') : 'Skip step'; }
+        }
     }
     function go(d) {
         const n = idx + d; if (n < 0) return;
@@ -6978,8 +7062,9 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
         idx = n; render();
     }
     function stop(mark) {
-        clearInterval(timer); timer = null;
+        clearInterval(timer); timer = null; clearGuide();
         if (spot) spot.remove(); if (card) card.remove(); spot = card = null;
+        base = null; gPts = null; userPos = null;
         window.removeEventListener('resize', place);
         if (mark) { try { localStorage.setItem('laneToolTourDone', '1'); } catch (e) { /* storage blocked */ } }
     }
@@ -7010,29 +7095,139 @@ $('keybind-list').insertAdjacentHTML('beforeend','<div><b>Intersection Tool</b> 
     });
     window.addEventListener('keydown', e => { if (e.key === 'Escape' && !(document.getElementById('export-controls') && getComputedStyle($('export-controls')).display !== 'none')) items.forEach(it => it.classList.remove('open')); });
 
-    // ---- translate (Google Website Translator, loaded on first use; the map itself is marked notranslate) ----
+    // ---- translate: the page's own text is sent to Google's translation endpoint and swapped in place (originals are kept, so English restores instantly) ----
     const LANGS = [['en', 'English'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['it', 'Italiano'], ['pt', 'Português'], ['nl', 'Nederlands'], ['sv', 'Svenska'], ['pl', 'Polski'], ['cs', 'Čeština'], ['tr', 'Türkçe'], ['ru', 'Русский'], ['uk', 'Українська'], ['ar', 'العربية'], ['he', 'עברית'], ['hi', 'हिन्दी'], ['bn', 'বাংলা'], ['th', 'ไทย'], ['vi', 'Tiếng Việt'], ['id', 'Bahasa Indonesia'], ['zh-CN', '中文 (简体)'], ['zh-TW', '中文 (繁體)'], ['ja', '日本語'], ['ko', '한국어']];
-    let cur = 'en', loading = false, ready = false, want = null;
+    let cur = 'en';
     try { cur = localStorage.getItem('laneToolLang') || 'en'; } catch (e) { /* storage blocked */ }
+    if (!LANGS.some(l => l[0] === cur)) cur = 'en';
     const panel = $('tr-lang-panel');
-    function paint() { panel.innerHTML = ''; LANGS.forEach(([c, n]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; if (c === cur) b.className = 'on'; b.addEventListener('click', () => { pick(c); }); panel.appendChild(b); }); }
-    function note(t) { try { showToast(t); } catch (e) { /* no toast */ } }
-    function setCombo(code, tries) {
-        const c = document.querySelector('select.goog-te-combo');
-        if (!c) { if (tries < 40) setTimeout(() => setCombo(code, tries + 1), 200); else note('Translation could not load (check your connection).'); return; }
-        c.value = code === 'en' ? '' : code; c.dispatchEvent(new Event('change'));
-        if (code === 'en') { try { const f = document.querySelector('iframe.goog-te-banner-frame'); const r = f && f.contentDocument && f.contentDocument.querySelector('button[id$=restore]'); if (r) r.click(); } catch (e) { /* cross-frame */ } }
+    function paint() {
+        panel.innerHTML = '';
+        LANGS.forEach(([c, n]) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = n; if (c === cur) b.className = 'on'; b.addEventListener('click', () => { pick(c); }); panel.appendChild(b); });
+        const f = document.createElement('div'); f.className = 'tr-note'; f.textContent = 'Page text is sent to Google Translate.'; panel.appendChild(f);
     }
-    window.__gtInit = function () { try { new google.translate.TranslateElement({ pageLanguage: 'en', autoDisplay: false }, 'gt-el'); ready = true; if (want) { const w = want; want = null; setTimeout(() => setCombo(w, 0), 300); } } catch (e) { note('Translation could not start.'); } };
-    function load() { if (loading) return; loading = true; const sc = document.createElement('script'); sc.src = 'https://translate.google.com/translate_a/element.js?cb=__gtInit'; sc.async = true; sc.onerror = () => { loading = false; note('Translation could not load (check your connection).'); }; document.head.appendChild(sc); }
+    function note(t) { try { showToast(t); } catch (e) { /* no toast */ } }
+
+    const SKIP = '.notranslate,[translate="no"],script,style,textarea,noscript,svg,canvas,#map,#tr-lang-panel';
+    const ATTRS = ['title', 'placeholder', 'aria-label'];
+    const origText = new Map();      // text node -> original English
+    const appliedText = new Map();   // text node -> translated string we wrote
+    const origAttr = new Map();      // element -> { attr: [original, applied] }
+    const cache = new Map();         // "lang|text" -> translation
+    let active = 'en', gen = 0, obs = null, timer = null, busy = false, failed = false, origTitle = document.title;
+    const hasLetters = s => /\p{L}/u.test(s);
+    const skipEl = el => !el || (el.closest && el.closest(SKIP));
+
+    function collect() {
+        const items = [];
+        const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.nodeValue.trim() && !skipEl(n.parentElement)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
+        let n;
+        while ((n = w.nextNode())) {
+            const v = n.nodeValue;
+            if (appliedText.get(n) === v) continue;                   // already ours
+            origText.set(n, v); appliedText.delete(n);                // new or changed by the app: treat as fresh English
+            if (hasLetters(v)) items.push({ kind: 't', node: n, src: v.trim().replace(/\s+/g, ' '), raw: v });
+        }
+        document.body.querySelectorAll('[title],[placeholder],[aria-label]').forEach(el => {
+            if (skipEl(el)) return;
+            const rec = origAttr.get(el) || {};
+            ATTRS.forEach(a => {
+                const v = el.getAttribute(a); if (!v || !hasLetters(v)) return;
+                if (rec[a] && rec[a][1] === v) return;
+                rec[a] = [v, null]; origAttr.set(el, rec);
+                items.push({ kind: 'a', el, attr: a, src: v.trim().replace(/\s+/g, ' '), raw: v });
+            });
+        });
+        return items;
+    }
+    async function fetchBatch(texts, tl) {
+        const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&dt=t&tl=' + encodeURIComponent(tl) + '&q=' + encodeURIComponent(texts.join('\n'));
+        const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json();
+        const out = (j[0] || []).map(s => s[0] || '').join('').split('\n').map(s => s.trim());
+        return out.length === texts.length ? out : null;
+    }
+    async function translateTexts(texts, tl) {      // unique strings -> Map(src -> translated)
+        const res = new Map(), need = texts.filter(t => { const c = cache.get(tl + '|' + t); if (c !== undefined) { res.set(t, c); return false; } return true; });
+        const batches = []; let cur_ = [], len = 0;
+        need.forEach(t => { if (cur_.length && (len + t.length > 1200 || cur_.length >= 40)) { batches.push(cur_); cur_ = []; len = 0; } cur_.push(t); len += t.length + 1; });
+        if (cur_.length) batches.push(cur_);
+        let i = 0;
+        async function worker() {
+            while (i < batches.length) {
+                const b = batches[i++];
+                let out = await fetchBatch(b, tl);
+                if (!out) { out = []; for (const t of b) { const o = await fetchBatch([t], tl); out.push(o ? o[0] : t); } }
+                b.forEach((t, k) => { const v = out[k] || t; cache.set(tl + '|' + t, v); res.set(t, v); });
+            }
+        }
+        await Promise.all([worker(), worker(), worker()]);
+        return res;
+    }
+    function lead(raw) { return (raw.match(/^\s*/) || [''])[0]; }
+    function trail(raw) { return (raw.match(/\s*$/) || [''])[0]; }
+    async function run() {
+        if (busy || active === 'en') return;
+        busy = true; const myGen = gen, tl = active;
+        try {
+            for (let pass = 0; pass < 3 && myGen === gen; pass++) {
+                const items = collect(); if (!items.length) break;
+                const map_ = await translateTexts([...new Set(items.map(x => x.src))], tl);
+                if (myGen !== gen) return;
+                items.forEach(x => {
+                    const t = map_.get(x.src); if (!t) return;
+                    if (x.kind === 't') {
+                        if (!x.node.isConnected || x.node.nodeValue !== x.raw) return;     // changed while we waited
+                        const nv = lead(x.raw) + t + trail(x.raw); x.node.nodeValue = nv; appliedText.set(x.node, nv);
+                    } else {
+                        if (x.el.getAttribute(x.attr) !== x.raw) return;
+                        x.el.setAttribute(x.attr, t); const rec = origAttr.get(x.el); if (rec && rec[x.attr]) rec[x.attr][1] = t;
+                    }
+                });
+            }
+            if (myGen === gen && document.title === origTitle && hasLetters(origTitle)) { const tt = await translateTexts([origTitle], tl); if (myGen === gen && tt.get(origTitle)) document.title = tt.get(origTitle); }
+            failed = false;
+        } catch (e) {
+            if (myGen === gen && !failed) { failed = true; note('Translation failed (' + (e && e.message || 'network') + '). Check your connection or ad blocker, then try again.'); }
+            if (myGen === gen) { restore(); cur = 'en'; try { localStorage.setItem('laneToolLang', 'en'); } catch (e2) { /* ignore */ } paint(); }
+        } finally { busy = false; }
+        if (myGen === gen && active !== 'en') watch();
+    }
+    function relevant(m) {
+        const n = m.target.nodeType === 3 ? m.target.parentElement : m.target;
+        if (skipEl(n)) return false;
+        if (m.type === 'characterData') return appliedText.get(m.target) !== m.target.nodeValue;
+        if (m.type === 'attributes') return !(origAttr.get(n) && origAttr.get(n)[m.attributeName] && origAttr.get(n)[m.attributeName][1] === n.getAttribute(m.attributeName));
+        return true;
+    }
+    function watch() {
+        if (obs) return;
+        obs = new MutationObserver(muts => {
+            if (active === 'en' || !muts.some(relevant)) return;
+            clearTimeout(timer); timer = setTimeout(run, 350);
+        });
+        obs.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ATTRS });
+    }
+    function restore() {
+        gen++; active = 'en'; clearTimeout(timer); if (obs) { obs.disconnect(); obs = null; }
+        appliedText.forEach((v, n) => { if (n.isConnected && n.nodeValue === v && origText.has(n)) n.nodeValue = origText.get(n); });
+        origAttr.forEach((rec, el) => { Object.keys(rec).forEach(a => { if (el.isConnected && rec[a][1] !== null && el.getAttribute(a) === rec[a][1]) el.setAttribute(a, rec[a][0]); }); });
+        appliedText.clear(); origText.clear(); origAttr.clear(); document.title = origTitle;
+        document.documentElement.lang = 'en';
+    }
     function pick(code) {
         cur = code; try { localStorage.setItem('laneToolLang', code); } catch (e) { /* storage blocked */ }
         paint(); items.forEach(it => it.classList.remove('open'));
-        if (code === 'en' && !ready) return;      // never translated this session: nothing to undo
-        if (ready) setCombo(code, 0); else { want = code; load(); }
+        if (code === active) return;
+        if (active !== 'en') restore();         // back to English first so each language starts from the originals
+        if (code === 'en') return;
+        active = code; gen++; failed = false; busy = false;
+        document.documentElement.lang = code;
+        note('Translating\u2026'); run();
+        watch();
     }
     paint();
-    if (cur !== 'en') { want = cur; load(); }
+    if (cur !== 'en') setTimeout(() => { active = cur; document.documentElement.lang = cur; run(); watch(); }, 900);
 })();
 </script>
 </body>
